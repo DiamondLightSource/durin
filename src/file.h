@@ -10,12 +10,9 @@
 #include <hdf5.h>
 
 struct dataset_properties_t {
-	int ndims;
 	int data_width;
-	hsize_t *dims;
+	hsize_t dims[3];
 };
-
-void free_dataset_properties(struct dataset_properties_t *p);
 
 struct data_description_t {
 	hid_t det_group_id;

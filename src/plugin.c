@@ -130,7 +130,6 @@ void plugin_close(int *error_flag) {
 
 	if (mask_buffer) free(mask_buffer);
 	if (data_desc.free_extra) data_desc.free_extra(&data_desc);
-	free_dataset_properties(&ds_prop);
 }
 
 #ifdef __cplusplus

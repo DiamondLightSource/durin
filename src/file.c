@@ -40,19 +40,11 @@ void clear_det_visit_objects(struct det_visit_objects_t *objects) {
 }
 
 
-void free_dataset_properties(struct dataset_properties_t *p) {
-	if (p->dims) {
-		free(p->dims);
-		p->dims = NULL;
-	}
-	p->ndims = 0;
-}
-
-
 void free_nxs_data_description(struct data_description_t *desc) {
 	if (desc->extra) free(desc->extra); /* should just be NULL */
 	desc->extra = NULL;
 }
+
 
 void free_eiger_data_description(struct data_description_t *desc) {
 	if (!desc->extra) return;
@@ -92,7 +84,7 @@ int get_nxs_dataset_dims(const struct data_description_t *desc, struct dataset_p
 	int retval = 0;
 	int ndims = 0;
 	int width = 0;
-	hsize_t *dims = NULL;
+	hsize_t dims[3] = {0};
 	g_id = desc->data_group_id;;
 
 	ds_id = H5Dopen2(g_id, "data", H5P_DEFAULT);
@@ -120,24 +112,18 @@ int get_nxs_dataset_dims(const struct data_description_t *desc, struct dataset_p
 	}
 
 	ndims = H5Sget_simple_extent_ndims(s_id);
-	if (ndims <= 0) {
+	if (ndims != 3) {
+		fprintf(stderr, "ERROR: Dataset rank is %d, not %d\n", ndims, 3);
 		retval = -1;
 		goto close_space;
 	}
 
-	dims = malloc(ndims * sizeof(hsize_t));
-	if (!dims) {
-		retval = -1;
-		goto close_space;
-	}
 	if (H5Sget_simple_extent_dims(s_id, dims, NULL) < 0) {
 		retval = -1;
-		free(dims);
 		goto close_space;
 	}
 
-	properties->ndims = ndims;
-	properties->dims = dims;
+	memcpy(properties->dims, dims, 3 * sizeof(*dims));
 	properties->data_width = width;
 
 close_space:
@@ -246,12 +232,7 @@ int get_dectris_eiger_dataset_dims(const struct data_description_t *desc, struct
 	int ndims = 3;
 	char ds_name[16] = {0}; /* 12 chars in "data_xxxxxx\0" */
 	int *frame_counts = NULL;
-	hsize_t *dims = malloc(3 * sizeof(hsize_t));
-	if (!dims) {
-		retval = -1;
-		return retval;
-	}
-	memset(dims, 0, sizeof(hsize_t) * ndims);
+	hsize_t dims[3] = {0};
 
 	/* datasets are "data_%06d % n" - need to determine how many of these there are and what the ranges are */
 
@@ -288,6 +269,12 @@ int get_dectris_eiger_dataset_dims(const struct data_description_t *desc, struct
 			goto close_space;
 		}
 
+		ndims = H5Sget_simple_extent_ndims(s_id);
+		if (ndims != 3) {
+			fprintf(stderr, "ERROR: Dataset rank is %d, not %d\n", ndims, 3);
+			retval = -1;
+			goto close_space;
+		}
 		if (H5Sget_simple_extent_dims(s_id, block_dims, NULL) < 0) {
 			retval = -1;
 			goto close_space;
@@ -308,11 +295,9 @@ close_dataset:
 	}
 
 	if (retval < 0) {
-		free(dims);
 		free(frame_counts);
 	} else {
-		properties->ndims = ndims;
-		properties->dims = dims;
+		memcpy(properties->dims, dims, 3 * sizeof(*dims));
 		properties->data_width = data_width;
 		((struct eiger_data_description_t *) desc->extra)->n_data_blocks = n_datas;
 		((struct eiger_data_description_t *) desc->extra)->block_sizes = frame_counts;
