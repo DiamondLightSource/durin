@@ -10,6 +10,7 @@
 #include <string.h>
 #include <strings.h>
 #include "file.h"
+#include "err.h"
 
 hid_t h5_int_type_from_width(const int width) {
 	if (width == sizeof(char)) {
@@ -89,38 +90,33 @@ int get_nxs_dataset_dims(const struct data_description_t *desc, struct dataset_p
 
 	ds_id = H5Dopen2(g_id, "data", H5P_DEFAULT);
 	if (ds_id <= 0) {
-		retval = -1;
-		return retval;
+		ERROR_JUMP(-1, done, "Unable to open 'data' dataset");
 	}
 
 	t_id = H5Dget_type(ds_id);
 	if (t_id <= 0) {
-		retval = -1;
-		goto close_dataset;
+		ERROR_JUMP(-1, close_dataset, "Error getting datatype");
 	}
 
 	width = H5Tget_size(t_id);
 	if (width <= 0) {
-		retval = -1;
-		goto close_type;
+		ERROR_JUMP(-1, close_type, "Error getting type size");
 	}
 
 	s_id = H5Dget_space(ds_id);
 	if (s_id <= 0) {
-		retval = -1;
-		goto close_dataset;
+		ERROR_JUMP(-1, close_dataset, "Error getting dataspace");
 	}
 
 	ndims = H5Sget_simple_extent_ndims(s_id);
 	if (ndims != 3) {
-		fprintf(stderr, "ERROR: Dataset rank is %d, not %d\n", ndims, 3);
-		retval = -1;
-		goto close_space;
+		char message[64];
+		sprintf(message, "Dataset rank is %d, expected %d", ndims, 3);
+		ERROR_JUMP(-1, close_space, message);
 	}
 
 	if (H5Sget_simple_extent_dims(s_id, dims, NULL) < 0) {
-		retval = -1;
-		goto close_space;
+		ERROR_JUMP(-1, close_space, "Error getting dataset dimensions");
 	}
 
 	memcpy(properties->dims, dims, 3 * sizeof(*dims));
@@ -132,6 +128,7 @@ close_type:
 	H5Tclose(t_id);
 close_dataset:
 	H5Dclose(ds_id);
+done:
 	return retval;
 }
 
@@ -141,34 +138,32 @@ int get_frame(hid_t g_id, const char* name, hsize_t *frame_idx, hsize_t *frame_s
 	hid_t ds_id, s_id, ms_id, t_id;
 	ds_id = H5Dopen2(g_id, name, H5P_DEFAULT);
 	if (ds_id <= 0) {
-		retval = -1;
-		return retval;
+		char message[64];
+		sprintf(message, "Unable to open dataset %.32s", name);
+		ERROR_JUMP(-1, done, message);
 	}
 	s_id = H5Dget_space(ds_id);
 	if (s_id <= 0) {
-		retval = -1;
-		goto close_dataset;
+		ERROR_JUMP(-1, close_dataset, "Error getting dataspace");
 	}
 	err = H5Sselect_hyperslab(s_id, H5S_SELECT_SET, frame_idx, NULL, frame_size, NULL);
 	if (err < 0) {
-		retval = -1;
-		goto close_space;
+		ERROR_JUMP(-1, close_space, "Error seleting hyperslab");
 	}
 	ms_id = H5Screate_simple(3, frame_size, frame_size);
 	if (ms_id < 0) {
-		retval = -1;
-		goto close_space;
+		ERROR_JUMP(-1, close_space, "Could not create dataspace");
 	}
 
 	t_id = h5_int_type_from_width(data_width);
 	if (t_id < 0) {
-		retval = -1;
-		goto close_mspace;
+		char message[64];
+		sprintf(message, "Could not infer signed integer from width %d", data_width);
+		ERROR_JUMP(-1, close_mspace, message);
 	}
 	err = H5Dread(ds_id, t_id, ms_id, s_id, H5P_DEFAULT, buffer);
 	if (err < 0) {
-		retval = -1;
-		goto close_mspace;
+		ERROR_JUMP(-1, close_mspace, "Error reading dataset");
 	}
 
 close_mspace:
@@ -177,6 +172,7 @@ close_space:
 	H5Sclose(s_id);
 close_dataset:
 	H5Dclose(ds_id);
+done:
 	return retval;
 }
 
@@ -193,6 +189,10 @@ int get_nxs_frame(
 	hsize_t frame_idx[3] = {n - 1, 0, 0};
 	hsize_t frame_size[3] = {1, ds_prop->dims[1], ds_prop->dims[2]};
 	retval = get_frame(desc->data_group_id, "data", frame_idx, frame_size, data_width, buffer);
+	if (retval < 0) {
+		ERROR_JUMP(retval, done, "");
+	}
+done:
 	return retval;
 }
 
@@ -220,6 +220,10 @@ int get_dectris_eiger_frame(
 	frame_idx[0] = idx;
 	sprintf(data_name, "data_%06d", block + 1);
 	retval = get_frame(desc->data_group_id, data_name, frame_idx, frame_size, data_width, buffer);
+	if (retval < 0) {
+		ERROR_JUMP(retval, done, "");
+	}
+done:
 	return retval;
 }
 
@@ -249,35 +253,32 @@ int get_dectris_eiger_dataset_dims(const struct data_description_t *desc, struct
 		sprintf(ds_name, "data_%06d", n + 1);
 		ds_id = H5Dopen2(desc->data_group_id, ds_name, H5P_DEFAULT);
 		if (ds_id < 0) {
-			retval = -1;
-			break;
+			char message[64];
+			sprintf("Unable to open dataset %.16s", ds_name);
+			ERROR_JUMP(-1, loop_end, message);
 		}
 		t_id = H5Dget_type(ds_id);
 		if (t_id < 0) {
-			retval = -1;
-			goto close_dataset;
+			ERROR_JUMP(-1, close_dataset, "Unable to get datatype")
 		}
 		s_id = H5Dget_space(ds_id);
 		if (s_id < 0) {
-			retval = -1;
-			goto close_type;
+			ERROR_JUMP(-1, close_type, "Unable to get dataspace");
 		}
 
 		data_width = H5Tget_size(t_id);
 		if (data_width <= 0) {
-			retval = -1;
-			goto close_space;
+			ERROR_JUMP(-1, close_space, "Unable to get type size");
 		}
 
 		ndims = H5Sget_simple_extent_ndims(s_id);
 		if (ndims != 3) {
-			fprintf(stderr, "ERROR: Dataset rank is %d, not %d\n", ndims, 3);
-			retval = -1;
-			goto close_space;
+			char message[64];
+			sprintf(message, "Dataset %.16s has rank %d, expected %d", ds_name, ndims, 3);
+			ERROR_JUMP(-1, close_space, message);
 		}
 		if (H5Sget_simple_extent_dims(s_id, block_dims, NULL) < 0) {
-			retval = -1;
-			goto close_space;
+			ERROR_JUMP(-1, close_space, "Unable to read dataset dimensions");
 		}
 
 		dims[1] = block_dims[1];
@@ -292,6 +293,8 @@ close_type:
 		H5Tclose(t_id);
 close_dataset:
 		H5Dclose(ds_id);
+loop_end:
+		if (retval < 0) break;
 	}
 
 	if (retval < 0) {
@@ -319,16 +322,18 @@ int read_pixel_info(hid_t g_id, const char *path, double *size) {
 	herr_t err = 0;
 	hid_t ds_id;
 	double value = 0;
-	ds_id = H5Dopen2(g_id,path, H5P_DEFAULT);
+	ds_id = H5Dopen2(g_id, path, H5P_DEFAULT);
 	if (ds_id < 0) {
-		retval = -1;
-		return retval;;
+		char message[64];
+		sprintf("Error opening dataset %.32s", path);
+		ERROR_JUMP(-1, done, message);
 	}
 
 	err = H5Dread(ds_id, H5T_NATIVE_DOUBLE, H5S_ALL, H5S_ALL, H5P_DEFAULT, &value);
 	if (err < 0) {
-		retval = -1;
-		goto close_dataset;
+		char message[64];
+		sprintf("Error reading dataset %.32s", path);
+		ERROR_JUMP(-1, close_dataset, message);
 	}
 
 	if (H5Aexists(ds_id, "units") > 0) {
@@ -339,14 +344,14 @@ int read_pixel_info(hid_t g_id, const char *path, double *size) {
 		double scale = 1;
 		a_id = H5Aopen(ds_id, "units", H5P_DEFAULT);
 		if (a_id < 0) {
-			retval = -1;
-			goto close_dataset;
+			char message[64];
+			sprintf("Error openeing units attribute for %.32s after existence check", path);
+			ERROR_JUMP(-1, close_dataset, message);
 		}
 
 		t_id = H5Aget_type(a_id);
 		if (t_id < 0) {
-			retval = -1;
-			goto close_attribute;
+			ERROR_JUMP(-1, close_attribute, "Error getting datatype");
 		}
 		/* TODO: handle multiple strings in attribute (just detect and error) */
 		if (H5Tis_variable_str(t_id) > 0) {
@@ -358,24 +363,22 @@ int read_pixel_info(hid_t g_id, const char *path, double *size) {
 			str_buffer = malloc(str_size + 1);
 		}
 		if (str_buffer == NULL) {
-			retval = -1;
-			goto close_datatype;
+			ERROR_JUMP(-1, close_datatype, "Unable to allocate space for variable length string");
 		}
 		mt_id = H5Tcopy(H5T_C_S1);
 		if (mt_id < 0) {
-			retval = -1;
-			goto free_string;
+			ERROR_JUMP(-1, free_string, "Error creating HDF5 String datatype");
 		}
 		err = H5Tset_size(mt_id, str_size == -1 ? H5T_VARIABLE : str_size);
 		if (err < 0) {
-			retval = -1;
-			goto close_mem_datatype;
+			char message[64];
+			sprintf(message, "Error setting datatype size to %d", str_size);
+			ERROR_JUMP(-1, close_mem_datatype, message);
 		}
 
 		err = H5Aread(a_id, mt_id, str_buffer);
 		if (err < 0) {
-			retval = -1;
-			goto close_mem_datatype;
+			ERROR_JUMP(-1, close_mem_datatype, "Error reading units attribute");
 		}
 		/* ensure last byte is null */
 		if (str_size > 0) ((char*) str_buffer)[str_size] = '\0';
@@ -401,36 +404,40 @@ close_datatype:
 		H5Tclose(t_id);
 close_attribute:
 		H5Aclose(a_id);
-	}
+	} /* if H5Aexists(...) */
 
-	*size = value;
 
 close_dataset:
 	H5Dclose(ds_id);
-
+done:
+	if (retval == 0) *size = value;
 	return retval;
 }
 
 
 int get_nxs_pixel_info(const struct data_description_t *desc, double *x_size, double *y_size) {
+	int retval = 0;
 	if (read_pixel_info(desc->det_group_id, "x_pixel_size", x_size) < 0) {
-		return -1;
+		ERROR_JUMP(-1, done, "");
 	}
 	if (read_pixel_info(desc->det_group_id, "y_pixel_size", y_size) < 0) {
-		return -1;
+		ERROR_JUMP(-1, done, "");
 	}
-	return 0;
+done:
+	return retval;
 }
 
 
 int get_dectris_eiger_pixel_info(const struct data_description_t *desc, double *x_size, double *y_size) {
+	int retval = 0;
 	if (read_pixel_info(desc->det_group_id, "detectorSpecific/x_pixel_size", x_size) < 0) {
-		return -1;
+		ERROR_JUMP(-1, done, "");
 	}
 	if (read_pixel_info(desc->det_group_id, "detectorSpecific/y_pixel_size", y_size) < 0) {
-		return -1;
+		ERROR_JUMP(-1, done, "");
 	}
-	return 0;
+done:
+	return retval;
 }
 
 
@@ -441,18 +448,17 @@ int get_nxs_pixel_mask(const struct data_description_t *desc, int *buffer) {
 
 	ds_id = H5Dopen2(desc->det_group_id, "pixel_mask", H5P_DEFAULT);
 	if (ds_id < 0) {
-		retval = -1;
-		return retval;
+		ERROR_JUMP(-1, done, "Error opening pixel_mask dataset");
 	}
 
 	err = H5Dread(ds_id, H5T_NATIVE_INT, H5S_ALL, H5S_ALL, H5P_DEFAULT, buffer);
 	if (err < 0) {
-		retval = -1;
-		goto close_dataset;
+		ERROR_JUMP(-1, close_dataset, "Error reading pixel_mask dataset");
 	}
 
 close_dataset:
 	H5Dclose(ds_id);
+done:
 	return retval;
 }
 
@@ -464,18 +470,17 @@ int get_dectris_eiger_pixel_mask(const struct data_description_t *desc, int *buf
 
 	ds_id = H5Dopen2(desc->det_group_id, "detectorSpecific/pixel_mask", H5P_DEFAULT);
 	if (ds_id < 0) {
-		retval = -1;
-		return retval;
+		ERROR_JUMP(-1, done, "Error opening detectorSpecific/pixel_mask");
 	}
 
 	err = H5Dread(ds_id, H5T_NATIVE_INT, H5S_ALL, H5S_ALL, H5P_DEFAULT, buffer);
 	if (err < 0) {
-		retval = -1;
-		goto close_dataset;
+		ERROR_JUMP(-1, close_dataset, "Error reading detectorSpecific/pixel_mask");
 	}
 
 close_dataset:
 	H5Dclose(ds_id);
+done:
 	return retval;
 
 }
@@ -487,6 +492,11 @@ herr_t det_visit_callback(hid_t root_id, const char *name, const H5O_info_t *inf
 	herr_t retval = 0;
 	if (info->type != H5O_TYPE_GROUP) return 0;
 	g_id = H5Oopen(root_id, name, H5P_DEFAULT);
+	if (g_id < 0) {
+		char message[256];
+		sprintf(message, "H5OVisit callback: Unable to open group %.128s", name);
+		ERROR_JUMP(-1, done, message);
+	}
 
 	/* check for an "NX_class" attribute */
 	{
@@ -494,36 +504,51 @@ herr_t det_visit_callback(hid_t root_id, const char *name, const H5O_info_t *inf
 		hid_t a_id, t_id;
 		H5A_info_t a_info;
 		if (H5Aexists(g_id, "NX_class") <= 0) {
+			/* not an error - just close group and allow continuation */
 			retval = 0;
 			goto close_group;
 		}
 		a_id = H5Aopen(g_id, "NX_class", H5P_DEFAULT);
 		if (a_id <= 0) {
-			/* TODO: error trace */
-			retval = -1;
-			goto close_group;
+			char message[256];
+			sprintf(message,
+					"H5OVisit callback: Error opening NX_class attribute on %.128s after existence check",
+					name);
+			ERROR_JUMP(-1, close_group, message);
 		}
 		if (H5Aget_info(a_id, &a_info) < 0) {
-			/* TODO: handle error */
-			retval = -1;
-			goto close_attr;
+			char message[256];
+			sprintf(message,
+					"H5OVisit callback: Error getting NX_class attribute info for %.128s",
+					name);
+			ERROR_JUMP(-1, close_attr, message);
 		}
+		/* TODO: handle vlen string */
 		t_id = H5Tcreate(H5T_STRING, a_info.data_size);
 		if (t_id <= 0) {
-			retval = -1;
-			goto close_attr;
+			char message[256];
+			sprintf(message,
+					"H5OVisit callback: Error creating string datatype of length %d on group %.128s",
+					(int) a_info.data_size,
+					name);
+			ERROR_JUMP(-1, close_attr, message);
 		}
 		buffer = malloc(a_info.data_size + 1);
 		if (buffer == NULL) {
-			/* TODO: OOM error */
-			retval =- 1;
-			goto close_type;
+			char message[256];
+			sprintf(message,
+					"H5OVisit callback: Error allocating string buffer with size %d on group %.128s",
+					(int) a_info.data_size + 1,
+					name);
+			ERROR_JUMP(-1, close_type, message);
 		}
 
 		if (H5Aread(a_id, t_id, buffer) < 0) {
-			/*TODO: handle*/
-			retval = -1;
-			goto free_buffer;
+			char message[256];
+			sprintf(message,
+					"H5OVisit callback: Error reading NX_class attribute on group %.128s",
+					name);
+			ERROR_JUMP(-1, free_buffer, message);
 		}
 
 		/* at least one file has been seen where the NX_class attribute was not null terminated
@@ -551,6 +576,7 @@ close_group:
 		/* TODO: error trace */
 		retval = -1;
 	}
+done:
 	return retval;
 }
 
@@ -564,12 +590,12 @@ int fill_data_descriptor(struct data_description_t *data_desc, struct det_visit_
 			H5Lexists(data_desc->det_group_id, "y_pixel_size", H5P_DEFAULT)) {
 		data_desc->get_pixel_properties = &get_nxs_pixel_info;
 	} else if (H5Lexists(data_desc->det_group_id, "detectorSpecific", H5P_DEFAULT) > 0 &&
-			H5Lexists(data_desc->det_group_id, "detectorSpecifc/x_pixel_size", H5P_DEFAULT) > 0 &&
-			H5Lexists(data_desc->det_group_id, "detectorSpecifc/y_pixel_size", H5P_DEFAULT) > 0) {
+			H5Lexists(data_desc->det_group_id, "detectorSpecific/x_pixel_size", H5P_DEFAULT) > 0 &&
+			H5Lexists(data_desc->det_group_id, "detectorSpecific/y_pixel_size", H5P_DEFAULT) > 0) {
 		data_desc->get_pixel_properties = &get_dectris_eiger_pixel_info;
 	} else {
 		data_desc->get_pixel_properties = NULL;
-		retval = -1;
+		ERROR_JUMP(-1, done, "Could not locate x_pixel_size and y_pixel_size");
 	}
 
 	/* determine pixel mask location */
@@ -580,7 +606,7 @@ int fill_data_descriptor(struct data_description_t *data_desc, struct det_visit_
 		data_desc->get_pixel_mask = &get_dectris_eiger_pixel_mask;
 	} else {
 		data_desc->get_pixel_mask = NULL;
-		retval = -1;
+		ERROR_JUMP(-1, done, "Could not locate pixel_mask");
 	}
 
 	/* determine where the data is stored and what strategy to use */
@@ -608,23 +634,23 @@ int fill_data_descriptor(struct data_description_t *data_desc, struct det_visit_
 		data_desc->data_group_id = 0;
 		data_desc->get_data_properties = NULL;
 		data_desc->get_data_frame = NULL;
-		retval = -1;
+		ERROR_JUMP(-1, done, "Could not locate detector dataset");
 	}
 
 	if (data_desc->get_data_properties == &get_dectris_eiger_dataset_dims) {
 		/* setup the "extra eiger info" struct */
 		struct eiger_data_description_t *eiger_desc = malloc(sizeof(*eiger_desc));
-		memset(eiger_desc, 0, sizeof(*eiger_desc));
 		if (!eiger_desc) {
-			retval = -1;
-			return retval;
+			ERROR_JUMP(-1, done, "Memory error creating data description for Eiger");
 		}
+		memset(eiger_desc, 0, sizeof(*eiger_desc));
 		data_desc->extra = eiger_desc;
 		data_desc->free_extra = free_eiger_data_description;
 	} else {
 		data_desc->free_extra = free_nxs_data_description;
 	}
 
+done:
 	return retval;
 }
 
@@ -633,12 +659,13 @@ int extract_detector_info(
 		const hid_t fid,
 		struct data_description_t *data_desc,
 		struct dataset_properties_t *dataset_prop) {
+	int retval = 0;
 	herr_t err = 0;
 	struct det_visit_objects_t objects = {0};
 	err = H5Ovisit(fid, H5_INDEX_NAME, H5_ITER_INC, &det_visit_callback, &objects);
 	if (err < 0) {
 		clear_det_visit_objects(&objects);
-		return -1;
+		ERROR_JUMP(-1, done, "Error during H5Ovisit callback");
 	}
 	if (objects.nxdata == 0) {
 		fprintf(stderr, "WARNING: Could not locate an NXdata entry\n");
@@ -647,7 +674,12 @@ int extract_detector_info(
 		fprintf(stderr, "WARNING: Could not locate an NXdetector entry\n");
 	}
 
-	fill_data_descriptor(data_desc, &objects);
-	data_desc->get_data_properties(data_desc, dataset_prop);
-	return 0;
+	if ((retval = fill_data_descriptor(data_desc, &objects)) < 0) {
+		ERROR_JUMP(retval, done, "");
+	};
+	if ((retval = data_desc->get_data_properties(data_desc, dataset_prop)) < 0) {
+		ERROR_JUMP(retval, done, "");
+	}
+done:
+	return retval;
 }

@@ -9,7 +9,7 @@ $(BUILD_DIR)/%.o: $(SRC_DIR)/%.c
 	mkdir -p $(BUILD_DIR)
 	$(CC) $(CFLAGS) -c $< -o $@
 
-plugin: $(BUILD_DIR)/plugin.o $(BUILD_DIR)/file.o
+plugin: $(BUILD_DIR)/plugin.o $(BUILD_DIR)/file.o $(BUILD_DIR)/err.o
 	mkdir -p $(BUILD_DIR)
 	$(CC) $(CFLAGS) -shared $^ -o $(BUILD_DIR)/plugin.so
 

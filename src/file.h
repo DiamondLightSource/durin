@@ -8,6 +8,7 @@
 #define NXS_XDS_FILE_H
 
 #include <hdf5.h>
+#include "err.h"
 
 struct dataset_properties_t {
 	int data_width;
