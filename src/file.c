@@ -183,10 +183,9 @@ int get_nxs_frame(
 		int data_width,
 		void *buffer) {
 	/* detector data are the two inner most indices */
-	/* n is indexed from one - hdf5 slices start at zero */
 	/* TODO: handle ndims > 3 and select appropriately */
 	int retval = 0;
-	hsize_t frame_idx[3] = {n - 1, 0, 0};
+	hsize_t frame_idx[3] = {n, 0, 0};
 	hsize_t frame_size[3] = {1, ds_prop->dims[1], ds_prop->dims[2]};
 	retval = get_frame(desc->data_group_id, "data", frame_idx, frame_size, data_width, buffer);
 	if (retval < 0) {
@@ -214,8 +213,8 @@ int get_dectris_eiger_frame(
 	/* determine the relevant data block */
 	frame_count = 0;
 	block = 0;
-	while ((frame_count += eiger_desc->block_sizes[block]) < (n-1)) block++;
-	idx = n - (frame_count - eiger_desc->block_sizes[block]) - 1; /* index in current block */
+	while ((frame_count += eiger_desc->block_sizes[block]) <= n) block++;
+	idx = n - (frame_count - eiger_desc->block_sizes[block]); /* index in current block */
 	printf("n: %d -> Block: %d, idx: %d\n", n, block, idx);
 	frame_idx[0] = idx;
 	sprintf(data_name, "data_%06d", block + 1);

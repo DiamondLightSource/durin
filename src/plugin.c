@@ -130,7 +130,7 @@ void plugin_get_data(
 	int retval = 0;
 	reset_error_stack();
 	fill_info_array(info);
-	if (data_desc.get_data_frame(&data_desc, &ds_prop, *frame_number, sizeof(int), data_array) < 0) {
+	if (data_desc.get_data_frame(&data_desc, &ds_prop, (*frame_number) - 1, sizeof(int), data_array) < 0) {
 		char message[64] = {0};
 		sprintf(message, "Failed to retrieve data for frame %d", *frame_number);
 		ERROR_JUMP(-2, done, message);
