@@ -187,6 +187,11 @@ int get_nxs_frame(
 	int retval = 0;
 	hsize_t frame_idx[3] = {n, 0, 0};
 	hsize_t frame_size[3] = {1, ds_prop->dims[1], ds_prop->dims[2]};
+	if (n < 0 || n >= ds_prop->dims[0]) {
+		char message[64];
+		sprintf(message, "Selected frame %d is out of range valid range [0, %d]", n, (int) ds_prop->dims[0] - 1);
+		ERROR_JUMP(-1, done, message);
+	}
 	retval = get_frame(desc->data_group_id, "data", frame_idx, frame_size, data_width, buffer);
 	if (retval < 0) {
 		ERROR_JUMP(retval, done, "");
@@ -209,6 +214,12 @@ int get_dectris_eiger_frame(
 	char data_name[16] = {0};
 	hsize_t frame_idx[3] = {0, 0, 0};
 	hsize_t frame_size[3] = {1, ds_prop->dims[1], ds_prop->dims[2]};
+
+	if (n < 0 || n >= ds_prop->dims[0]) {
+		char message[64];
+		sprintf(message, "Selected frame %d is out of range valid range [0, %d]", n, (int) ds_prop->dims[0] - 1);
+		ERROR_JUMP(-1, done, message);
+	}
 
 	/* determine the relevant data block */
 	frame_count = 0;
