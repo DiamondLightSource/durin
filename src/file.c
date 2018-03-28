@@ -500,9 +500,9 @@ herr_t det_visit_callback(hid_t root_id, const char *name, const H5O_info_t *inf
 
 	/* check for an "NX_class" attribute */
 	{
-		char* buffer = NULL;
-		hid_t a_id, t_id;
-		H5A_info_t a_info;
+		int str_size = 0;
+		void* buffer = NULL;
+		hid_t a_id, t_id, mt_id;
 		if (H5Aexists(g_id, "NX_class") <= 0) {
 			/* not an error - just close group and allow continuation */
 			retval = 0;
@@ -516,53 +516,66 @@ herr_t det_visit_callback(hid_t root_id, const char *name, const H5O_info_t *inf
 					name);
 			ERROR_JUMP(-1, close_group, message);
 		}
-		if (H5Aget_info(a_id, &a_info) < 0) {
-			char message[256];
-			sprintf(message,
-					"H5OVisit callback: Error getting NX_class attribute info for %.128s",
-					name);
-			ERROR_JUMP(-1, close_attr, message);
+
+		t_id = H5Aget_type(a_id);
+		if (t_id < 0) {
+			ERROR_JUMP(-1, close_attr, "Error getting datatype");
 		}
-		/* TODO: handle vlen string */
-		t_id = H5Tcreate(H5T_STRING, a_info.data_size);
-		if (t_id <= 0) {
-			char message[256];
-			sprintf(message,
-					"H5OVisit callback: Error creating string datatype of length %d on group %.128s",
-					(int) a_info.data_size,
-					name);
-			ERROR_JUMP(-1, close_attr, message);
+		if (H5Tis_variable_str(t_id) > 0) {
+			str_size = -1;
+			buffer = malloc(sizeof(char*));
+		} else {
+			str_size = H5Tget_size(t_id);
+			buffer = malloc(str_size + 1);
 		}
-		buffer = malloc(a_info.data_size + 1);
-		if (buffer == NULL) {
-			char message[256];
-			sprintf(message,
-					"H5OVisit callback: Error allocating string buffer with size %d on group %.128s",
-					(int) a_info.data_size + 1,
-					name);
-			ERROR_JUMP(-1, close_type, message);
+		if (!buffer) {
+			ERROR_JUMP(-1, close_type, "Error allocating string buffer");
 		}
 
-		if (H5Aread(a_id, t_id, buffer) < 0) {
+		mt_id = H5Tcopy(H5T_C_S1);
+		if (mt_id < 0) {
+			ERROR_JUMP(-1, free_buffer, "Error creating HDF5 String datatype");
+		}
+		if (H5Tset_size(mt_id, str_size == -1 ? H5T_VARIABLE : str_size) < 0) {
+			char message[64];
+			sprintf(message, "Error setting string datatype to size %d", str_size);
+			ERROR_JUMP(-1, close_mtype, message);
+		}
+
+		if (H5Aread(a_id, mt_id, buffer) < 0) {
 			char message[256];
 			sprintf(message,
 					"H5OVisit callback: Error reading NX_class attribute on group %.128s",
 					name);
-			ERROR_JUMP(-1, free_buffer, message);
+			ERROR_JUMP(-1, close_mtype, message);
 		}
 
 		/* at least one file has been seen where the NX_class attribute was not null terminated
 		 * and extraneous bytes where being read by strcmp -  set the end byte to null
 		*/
-		buffer[a_info.data_size] = '\0';
-		if (strcmp("NXdata", buffer) == 0) {
-			hid_t out_id = H5Gopen(root_id, name, H5P_DEFAULT);
-			output_data->nxdata = out_id;
-		} else if (strcmp("NXdetector", buffer) == 0) {
-			hid_t out_id = H5Gopen(root_id, name, H5P_DEFAULT);
-			output_data->nxdetector = out_id;
+		if (str_size > 0) ((char*) buffer)[str_size] = '\0';
+		/* test for NXdata or NXdetector */
+		{
+			char *nxclass = str_size > 0 ? (char*) buffer : *((char**) buffer);
+			if (strcmp("NXdata", nxclass) == 0) {
+				hid_t out_id = H5Gopen(root_id, name, H5P_DEFAULT);
+				output_data->nxdata = out_id;
+			} else if (strcmp("NXdetector", nxclass) == 0) {
+				hid_t out_id = H5Gopen(root_id, name, H5P_DEFAULT);
+				output_data->nxdetector = out_id;
+			}
 		}
 
+		if (str_size == -1) {
+			hsize_t dims[1] = {1};
+			hid_t s_id = H5Screate_simple(1, dims, NULL);
+			H5Sselect_all(s_id);
+			H5Dvlen_reclaim(mt_id, s_id, H5P_DEFAULT, buffer);
+			H5Sclose(s_id);
+		}
+
+close_mtype:
+		H5Tclose(mt_id);
 free_buffer:
 		free(buffer);
 close_type:
