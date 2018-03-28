@@ -226,7 +226,6 @@ int get_dectris_eiger_frame(
 	block = 0;
 	while ((frame_count += eiger_desc->block_sizes[block]) <= n) block++;
 	idx = n - (frame_count - eiger_desc->block_sizes[block]); /* index in current block */
-	printf("n: %d -> Block: %d, idx: %d\n", n, block, idx);
 	frame_idx[0] = idx;
 	sprintf(data_name, "data_%06d", block + 1);
 	retval = get_frame(desc->data_group_id, data_name, frame_idx, frame_size, data_width, buffer);
