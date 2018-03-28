@@ -13,6 +13,10 @@ plugin: $(BUILD_DIR)/plugin.o $(BUILD_DIR)/file.o $(BUILD_DIR)/err.o
 	mkdir -p $(BUILD_DIR)
 	$(CC) $(CFLAGS) -shared $^ -o $(BUILD_DIR)/plugin.so
 
+example: $(BUILD_DIR)/test.o $(BUILD_DIR)/file.o $(BUILD_DIR)/err.o
+	mkdir -p $(BUILD_DIR)
+	$(CC) $(CFLAGS) $^ -o $(BUILD_DIR)/example
+
 .PHONY: clean
 clean:
 	rm -r $(BUILD_DIR)
