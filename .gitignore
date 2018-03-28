@@ -3,5 +3,6 @@
 *.bak
 *.tmp
 
+build/
 *.o
 *.so
