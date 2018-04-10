@@ -54,6 +54,11 @@ void plugin_open(
 		int *error_flag) {
 	int retval = 0;
 	*error_flag = 0;
+
+	if (init_h5_error_handling() < 0) {
+		ERROR_JUMP(-2, done, "Failed to configure HDF5 error handling");
+	}
+
 	fill_info_array(info);
 	file_id = H5Fopen(filename, H5F_ACC_RDONLY, H5P_DEFAULT);
 	if (file_id < 0) {

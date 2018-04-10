@@ -47,6 +47,9 @@ int main(int argc, char **argv) {
 	int *data = NULL;
 
 	reset_error_stack();
+	if (init_h5_error_handling() < 0) {
+		ERROR_JUMP(-1, done, "");
+	}
 
 	if (parse_args(argc, argv, &test_file, &frame_idx) < 0) {
 		ERROR_JUMP(-1, done, "Failure parsing arguments");

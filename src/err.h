@@ -48,4 +48,6 @@ void dump_error_stack(FILE *out);
 
 void reset_error_stack();
 
+int init_h5_error_handling();
+
 #endif /* NXS_XDS_ERR_H */
