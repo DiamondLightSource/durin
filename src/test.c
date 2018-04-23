@@ -46,7 +46,7 @@ int main(int argc, char **argv) {
 	int *mask = NULL;
 	int *data = NULL;
 
-	reset_error_stack();
+	init_error_handling();
 	if (init_h5_error_handling() < 0) {
 		ERROR_JUMP(-1, done, "");
 	}

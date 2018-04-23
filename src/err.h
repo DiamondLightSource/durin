@@ -50,4 +50,6 @@ void reset_error_stack();
 
 int init_h5_error_handling();
 
+int init_error_handling();
+
 #endif /* NXS_XDS_ERR_H */

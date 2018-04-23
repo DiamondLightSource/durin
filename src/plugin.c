@@ -55,6 +55,8 @@ void plugin_open(
 	int retval = 0;
 	*error_flag = 0;
 
+	init_error_handling();
+
 	if (H5dont_atexit() < 0) {
 		ERROR_JUMP(-2, done, "Failed configuring HDF5 library behaviour");
 	}

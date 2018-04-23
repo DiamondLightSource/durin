@@ -34,9 +34,6 @@ static struct error_stack_t stack = {files, funcs, lines, errors, messages, 0};
 void push_error_stack(const char *file, const char *func, int line, int err, const char *message) {
 	if (stack.size >= ERR_MAX_STACK_SIZE) return; /* unfortunate */
 	int idx = stack.size;
-	stack.files[idx] = files_buffer + (idx * ERR_MAX_FILENAME_LENGTH);
-	stack.funcs[idx] = funcs_buffer + (idx * ERR_MAX_FUNCNAME_LENGTH);
-	stack.messages[idx] = messages_buffer + (idx * ERR_MAX_MESSAGE_LENGTH);
 
 	/* subtract 1 to ensure room for null byte in buffer */
 	sprintf(stack.funcs[idx], "%.*s", ERR_MAX_FUNCNAME_LENGTH - 1, func);
@@ -105,5 +102,17 @@ int init_h5_error_handling() {
 		ERROR_JUMP(err, done, "Error configuring HDF5 error callback");
 	}
 done:
+	return retval;
+}
+
+int init_error_handling() {
+	int retval = 0;
+	int idx = 0;
+	while (idx < ERR_MAX_STACK_SIZE) {
+		stack.files[idx] = files_buffer + (idx * ERR_MAX_FILENAME_LENGTH);
+		stack.funcs[idx] = funcs_buffer + (idx * ERR_MAX_FUNCNAME_LENGTH);
+		stack.messages[idx] = messages_buffer + (idx * ERR_MAX_MESSAGE_LENGTH);
+		idx++;
+	}
 	return retval;
 }
