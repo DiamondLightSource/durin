@@ -431,9 +431,11 @@ contains
     end if
 
     write(6,*) "[generic_data_plugin] - INFO - 'call generic_close()'"
-    
+    external_error_flag=0
     call dll_plugin_close(external_error_flag)
     error_flag = external_error_flag
+
+    write(6,*) "[generic_data_plugin] - INFO - 'plugin close flag:", error_flag, "'"
 
     ! now close the dl:
     status=dlclose(handle)

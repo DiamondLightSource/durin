@@ -55,6 +55,10 @@ void plugin_open(
 	int retval = 0;
 	*error_flag = 0;
 
+	if (H5dont_atexit() < 0) {
+		ERROR_JUMP(-2, done, "Failed configuring HDF5 library behaviour");
+	}
+
 	if (init_h5_error_handling() < 0) {
 		ERROR_JUMP(-2, done, "Failed to configure HDF5 error handling");
 	}
@@ -154,8 +158,7 @@ done:
 
 void plugin_close(int *error_flag) {
 	if (file_id) {
-		herr_t err = H5Fclose(file_id);
-		if (err) {
+		if (H5Fclose(file_id) < 0) {
 			/* TODO: backtrace */
 			*error_flag = -1;
 		}
@@ -164,6 +167,9 @@ void plugin_close(int *error_flag) {
 
 	if (mask_buffer) free(mask_buffer);
 	if (data_desc.free_extra) data_desc.free_extra(&data_desc);
+	if (H5close() < 0) {
+		*error_flag = -1;
+	}
 }
 
 #ifdef __cplusplus
