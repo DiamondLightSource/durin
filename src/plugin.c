@@ -119,7 +119,7 @@ void plugin_get_header(
 
 	*nx = ds_prop.dims[2];
 	*ny = ds_prop.dims[1];
-	*nbytes = ds_prop.dims[1] * ds_prop.dims[2] * ds_prop.data_width;
+	*nbytes = ds_prop.data_width;
 	*number_of_frames = ds_prop.dims[0];
 	*qx = (float) x_pixel_size;
 	*qy = (float) y_pixel_size;
