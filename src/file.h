@@ -9,6 +9,7 @@
 
 #include <hdf5.h>
 #include "err.h"
+#include "filters.h"
 
 struct dataset_properties_t {
 	int data_width;
@@ -31,9 +32,18 @@ void free_nxs_data_description(struct data_description_t *desc);
 struct eiger_data_description_t {
 	int n_data_blocks;
 	int *block_sizes;
+	int (*raw_frame_func)(const struct data_description_t*, const char*, hsize_t*, hsize_t*, int, void*);
 };
 
 void free_eiger_data_description(struct data_description_t *desc);
+
+struct optimised_eiger_data_description_t {
+	struct eiger_data_description_t base;
+	int n_filter_params;
+	unsigned int bs_filter_params[BS_H5_N_PARAMS];
+};
+
+void free_optimised_eiger_data_description(struct data_description_t *desc);
 
 struct det_visit_objects_t {
 	hid_t nxdata;
