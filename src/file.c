@@ -215,12 +215,16 @@ int get_frame_from_chunk(const struct ds_desc_t *desc,
 		ERROR_JUMP(-1, done, message);
 	}
 
-	c_buffer = malloc(c_bytes);
-	if (!c_buffer) {
-		char message[128];
-		sprintf(message, "Unable to allocate chunk buffer for dataset %.32s - frame %llu, size %llu bytes",
-				ds_name, frame_idx[0], c_bytes);
-		ERROR_JUMP(-1, done, message);
+	if (o_eiger_desc->bs_applied) {
+		c_buffer = malloc(c_bytes);
+		if (!c_buffer) {
+			char message[128];
+			sprintf(message, "Unable to allocate chunk buffer for dataset %.32s - frame %llu, size %llu bytes",
+					ds_name, frame_idx[0], c_bytes);
+			ERROR_JUMP(-1, done, message);
+		}
+	} else {
+		c_buffer = buffer;
 	}
 
 	if (H5DOread_chunk(d_id, H5P_DEFAULT, c_offset, &c_filter_mask, c_buffer) < 0) {
@@ -230,20 +234,22 @@ int get_frame_from_chunk(const struct ds_desc_t *desc,
 		ERROR_JUMP(-1, done, message);
 	}
 
-	if (bslz4_decompress(
-				o_eiger_desc->bs_params,
-				c_bytes,
-				c_buffer,
-				desc->data_width * frame_size[1] * frame_size[2],
-				buffer) < 0) {
-		char message[128];
-		sprintf(message, "Error processing chunk %llu from %.32s with bitshuffle_lz4",
-				frame_idx[0], ds_name);
-		ERROR_JUMP(-1, done, message);
+	if (o_eiger_desc->bs_applied) {
+		if (bslz4_decompress(
+					o_eiger_desc->bs_params,
+					c_bytes,
+					c_buffer,
+					desc->data_width * frame_size[1] * frame_size[2],
+					buffer) < 0) {
+			char message[128];
+			sprintf(message, "Error processing chunk %llu from %.32s with bitshuffle_lz4",
+					frame_idx[0], ds_name);
+			ERROR_JUMP(-1, done, message);
+		}
 	}
 
 done:
-	if (c_buffer) free(c_buffer);
+	if (c_buffer && (c_buffer != buffer)) free(c_buffer);
 	if (d_id) H5Dclose(d_id);
 	return retval;
 }
