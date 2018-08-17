@@ -81,9 +81,9 @@ void ioc_set_next_out(ioc_chain *C, size_t *this_iter, void* out_ptr) {
     C->out_pl[(*this_iter + 1) % IOC_SIZE].ptr = out_ptr;
 #ifdef _OPENMP
     omp_unset_lock(&(C->out_pl[(*this_iter + 1) % IOC_SIZE].lock));
-    // *in_pl[this_iter]* lock released at the end of the iteration to avoid being
-    // overtaken by previous threads and having *out_pl[this_iter]* corrupted.
-    // Especially worried about thread 0, iteration 0.
+
+
+
     omp_unset_lock(&(C->in_pl[(*this_iter) % IOC_SIZE].lock));
 #endif
 }

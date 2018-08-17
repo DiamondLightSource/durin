@@ -13,31 +13,19 @@
 #ifndef BITSHUFFLE_INTERNALS_H
 #define BITSHUFFLE_INTERNALS_H
 
-// We assume GNU g++ defining `__cplusplus` has stdint.h
-#if (defined (__STDC_VERSION__) && __STDC_VERSION__ >= 199900L) || defined(__cplusplus)
-#include <stdint.h>
-#else
-  typedef unsigned char       uint8_t;
-  typedef unsigned short      uint16_t;
-  typedef unsigned int        uint32_t;
-  typedef   signed int        int32_t;
-  typedef unsigned long long  uint64_t;
-  typedef long long           int64_t;
-#endif
 
 #include <stdlib.h>
 #include "iochain.h"
 
 
-// Constants.
 #ifndef BSHUF_MIN_RECOMMEND_BLOCK
 #define BSHUF_MIN_RECOMMEND_BLOCK 128
-#define BSHUF_BLOCKED_MULT 8    // Block sizes must be multiple of this.
+#define BSHUF_BLOCKED_MULT 8
 #define BSHUF_TARGET_BLOCK_SIZE_B 8192
 #endif
 
 
-// Macros.
+
 #define CHECK_ERR_FREE(count, buf) if (count < 0) { free(buf); return count; }
 
 
@@ -69,7 +57,7 @@ int64_t bshuf_blocked_wrap_fun(bshufBlockFunDef fun, const void* in, void* out,
         const size_t size, const size_t elem_size, size_t block_size);
 
 #ifdef __cplusplus
-} // extern "C"
+}
 #endif
 
-#endif  // BITSHUFFLE_INTERNALS_H
+#endif

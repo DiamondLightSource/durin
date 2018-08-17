@@ -18,12 +18,12 @@
 #include <string.h>
 
 
-// Constants.
-// Use fast decompression instead of safe decompression for LZ4.
+
+
 #define BSHUF_LZ4_DECOMPRESS_FAST
 
 
-// Macros.
+
 #define CHECK_ERR_FREE_LZ(count, buf) if (count < 0) {                      \
     free(buf); return count - 1000; }
 
@@ -138,13 +138,13 @@ size_t bshuf_compress_lz4_bound(const size_t size,
     }
     if (block_size % BSHUF_BLOCKED_MULT) return -81;
 
-    // Note that each block gets a 4 byte header.
-    // Size of full blocks.
+
+
     bound = (LZ4_compressBound(block_size * elem_size) + 4) * (size / block_size);
-    // Size of partial blocks, if any.
+
     leftover = ((size % block_size) / BSHUF_BLOCKED_MULT) * BSHUF_BLOCKED_MULT;
     if (leftover) bound += LZ4_compressBound(leftover * elem_size) + 4;
-    // Size of uncompressed data not fitting into any blocks.
+
     bound += (size % BSHUF_BLOCKED_MULT) * elem_size;
     return bound;
 }

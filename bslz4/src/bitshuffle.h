@@ -117,7 +117,7 @@ int64_t bshuf_decompress_lz4(const void* in, void* out, const size_t size,
         const size_t elem_size, size_t block_size);
 
 #ifdef __cplusplus
-} // extern "C"
+}
 #endif
 
-#endif  // BITSHUFFLE_H
+#endif

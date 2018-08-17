@@ -25,7 +25,7 @@
 #endif
 
 
-// Conditional includes for SSE2 and AVX2.
+
 #ifdef USEAVX2
 #include <immintrin.h>
 #elif defined USESSE2
@@ -33,7 +33,7 @@
 #endif
 
 
-// Macros.
+
 #define CHECK_MULT_EIGHT(n) if (n % 8) return -80;
 #define MAX(X,Y) ((X) > (Y) ? (X) : (Y))
 
@@ -131,8 +131,8 @@ int64_t bshuf_trans_byte_elem_remainder(const void* in, void* out, const size_t 
     CHECK_MULT_EIGHT(start);
 
     if (size > start) {
-        // ii loop separated into 2 loops so the compiler can unroll
-        // the inner one.
+
+
         for (ii = start; ii + 7 < size; ii += 8) {
             for (jj = 0; jj < elem_size; jj++) {
                 for (kk = 0; kk < 8; kk++) {
@@ -351,7 +351,7 @@ int64_t bshuf_untrans_bit_elem_scal(const void* in, void* out, const size_t size
 /* ---- Worker code that uses SSE2 ----
  *
  * The following code makes use of the SSE2 instruction set and specialized
- * 16 byte registers. The SSE2 instructions are present on modern x86 
+ * 16 byte registers. The SSE2 instructions are present on modern x86
  * processors. The first Intel processor microarchitecture supporting SSE2 was
  * Pentium 4 (2000).
  *
@@ -512,7 +512,7 @@ int64_t bshuf_trans_byte_elem_SSE(const void* in, void* out, const size_t size,
 
     int64_t count;
 
-    // Trivial cases: power of 2 bytes.
+
     switch (elem_size) {
         case 1:
             count = bshuf_copy(in, out, size, elem_size);
@@ -528,14 +528,14 @@ int64_t bshuf_trans_byte_elem_SSE(const void* in, void* out, const size_t size,
             return count;
     }
 
-    // Worst case: odd number of bytes. Turns out that this is faster for
-    // (odd * 2) byte elements as well (hence % 4).
+
+
     if (elem_size % 4) {
         count = bshuf_trans_byte_elem_scal(in, out, size, elem_size);
         return count;
     }
 
-    // Multiple of power of 2: transpose hierarchically.
+
     {
         size_t nchunk_elem;
         void* tmp_buf = malloc(size * elem_size);
@@ -554,7 +554,7 @@ int64_t bshuf_trans_byte_elem_SSE(const void* in, void* out, const size_t size,
                     size * nchunk_elem);
             bshuf_trans_elem(tmp_buf, out, 4, nchunk_elem, size);
         } else {
-            // Not used since scalar algorithm is faster.
+
             nchunk_elem = elem_size / 2;
             TRANS_ELEM_TYPE(in, out, size, nchunk_elem, int16_t);
             count = bshuf_trans_byte_elem_SSE_16(out, tmp_buf,
@@ -687,8 +687,8 @@ int64_t bshuf_trans_byte_bitrow_SSE(const void* in, void* out, const size_t size
             g1 = _mm_unpacklo_epi32(g0, h0);
             h1 = _mm_unpackhi_epi32(g0, h0);
 
-            // We don't have a storeh instruction for integers, so interpret
-            // as a float. Have a storel (_mm_storel_epi64).
+
+
             as = (__m128 *) &a1;
             bs = (__m128 *) &b1;
             cs = (__m128 *) &c1;
@@ -737,8 +737,8 @@ int64_t bshuf_shuffle_bit_eightelem_SSE(const void* in, void* out, const size_t 
 
     CHECK_MULT_EIGHT(size);
 
-    // With a bit of care, this could be written such that such that it is
-    // in_buf = out_buf safe.
+
+
     const char* in_b = (const char*) in;
     uint16_t* out_ui16 = (uint16_t*) out;
 
@@ -788,7 +788,7 @@ int64_t bshuf_untrans_bit_elem_SSE(const void* in, void* out, const size_t size,
     return count;
 }
 
-#else // #ifdef USESSE2
+#else
 
 
 int64_t bshuf_untrans_bit_elem_SSE(const void* in, void* out, const size_t size,
@@ -842,7 +842,7 @@ int64_t bshuf_shuffle_bit_eightelem_SSE(const void* in, void* out, const size_t 
 }
 
 
-#endif // #ifdef USESSE2
+#endif
 
 
 /* ---- Code that requires AVX2. Intel Haswell (2013) and later. ---- */
@@ -1014,8 +1014,8 @@ int64_t bshuf_shuffle_bit_eightelem_AVX(const void* in, void* out, const size_t 
 
     CHECK_MULT_EIGHT(size);
 
-    // With a bit of care, this could be written such that such that it is
-    // in_buf = out_buf safe.
+
+
     const char* in_b = (const char*) in;
     char* out_b = (char*) out;
 
@@ -1065,7 +1065,7 @@ int64_t bshuf_untrans_bit_elem_AVX(const void* in, void* out, const size_t size,
 }
 
 
-#else // #ifdef USEAVX2
+#else
 
 int64_t bshuf_trans_bit_byte_AVX(const void* in, void* out, const size_t size,
          const size_t elem_size) {
@@ -1096,12 +1096,12 @@ int64_t bshuf_untrans_bit_elem_AVX(const void* in, void* out, const size_t size,
     return -12;
 }
 
-#endif // #ifdef USEAVX2
+#endif
 
 
 /* ---- Drivers selecting best instruction set at compile time. ---- */
 
-int64_t bshuf_trans_bit_elem(const void* in, void* out, const size_t size, 
+int64_t bshuf_trans_bit_elem(const void* in, void* out, const size_t size,
         const size_t elem_size) {
 
     int64_t count;
@@ -1116,7 +1116,7 @@ int64_t bshuf_trans_bit_elem(const void* in, void* out, const size_t size,
 }
 
 
-int64_t bshuf_untrans_bit_elem(const void* in, void* out, const size_t size, 
+int64_t bshuf_untrans_bit_elem(const void* in, void* out, const size_t size,
         const size_t elem_size) {
 
     int64_t count;
@@ -1178,7 +1178,6 @@ int64_t bshuf_blocked_wrap_fun(bshufBlockFunDef fun, const void* in, void* out, 
     if (err < 0) return err;
 
     leftover_bytes = size % BSHUF_BLOCKED_MULT * elem_size;
-    //this_iter;
     last_in = (char *) ioc_get_in(&C, &this_iter);
     ioc_set_next_in(&C, &this_iter, (void *) (last_in + leftover_bytes));
     last_out = (char *) ioc_get_out(&C, &this_iter);
@@ -1202,7 +1201,7 @@ int64_t bshuf_bitshuffle_block(ioc_chain *C_ptr, \
     int64_t count;
 
 
-    
+
     in = ioc_get_in(C_ptr, &this_iter);
     ioc_set_next_in(C_ptr, &this_iter,
             (void*) ((char*) in + size * elem_size));
@@ -1297,11 +1296,11 @@ uint32_t bshuf_read_uint32_BE(const void* buf) {
  */
 
 size_t bshuf_default_block_size(const size_t elem_size) {
-    // This function needs to be absolutely stable between versions.
-    // Otherwise encoded data will not be decodable.
+
+
 
     size_t block_size = BSHUF_TARGET_BLOCK_SIZE_B / elem_size;
-    // Ensure it is a required multiple.
+
     block_size = (block_size / BSHUF_BLOCKED_MULT) * BSHUF_BLOCKED_MULT;
     return MAX(block_size, BSHUF_MIN_RECOMMEND_BLOCK);
 }
