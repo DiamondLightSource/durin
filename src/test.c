@@ -38,8 +38,7 @@ int main(int argc, char **argv) {
 	int err = 0;
 	int retval = 0;
 	char *test_file = "";
-	struct data_description_t desc = {0};
-	struct dataset_properties_t prop = {0};
+	struct ds_desc_t *desc;
 	int dims[3] = {0};
 	hid_t fid = 0;
 	int frame_idx = 0;
@@ -58,13 +57,13 @@ int main(int argc, char **argv) {
 	fid = H5Fopen(test_file, H5F_ACC_RDONLY, H5P_DEFAULT);
 	if (fid < 0) ERROR_JUMP(-1, done, "Error opening file");
 
-	err = extract_detector_info(fid, &desc, &prop);
+	err = get_detector_info(fid, &desc);
 	if (err < 0) {
 		ERROR_JUMP(err, done, "");
 	}
-	dims[0] = prop.dims[0];
-	dims[1] = prop.dims[1];
-	dims[2] = prop.dims[2];
+	dims[0] = desc->dims[0];
+	dims[1] = desc->dims[1];
+	dims[2] = desc->dims[2];
 
 	printf("Dims: %d, %d, %d\n", dims[0], dims[1], dims[2]);
 
@@ -72,13 +71,13 @@ int main(int argc, char **argv) {
 	if (!mask) {
 		ERROR_JUMP(err, done, "Failed to allocate space for pixel mask");
 	}
-	err = desc.get_pixel_mask(&desc, mask);
+	err = desc->get_pixel_mask(desc, mask);
 	if (err < 0) {
 		ERROR_JUMP(err, done, "");
 	}
 
 	data = malloc(dims[1] * dims[2] * sizeof(*data));
-	err = desc.get_data_frame(&desc, &prop, frame_idx, sizeof(*data), data);
+	err = desc->get_data_frame(desc, frame_idx, sizeof(*data), data);
 	if (err < 0) {
 		ERROR_JUMP(err, done, "");
 	}

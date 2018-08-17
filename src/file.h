@@ -11,51 +11,40 @@
 #include "err.h"
 #include "filters.h"
 
-struct dataset_properties_t {
-	int data_width;
+
+struct ds_desc_t {
+	hid_t det_g_id;
+	hid_t data_g_id;
 	hsize_t dims[3];
+	int data_width;
+	int (*get_pixel_properties)(const struct ds_desc_t*, double*, double*);
+	int (*get_pixel_mask)(const struct ds_desc_t*, int*);
+	int (*get_data_frame)(const struct ds_desc_t*, const int, const int, void*);
+	void (*free_desc)(struct ds_desc_t*);
 };
 
-struct data_description_t {
-	hid_t det_group_id;
-	hid_t data_group_id;
-	int (*get_pixel_properties)(const struct data_description_t*, double*, double*);
-	int (*get_pixel_mask)(const struct data_description_t*, int*);
-	int (*get_data_properties)(const struct data_description_t*, struct dataset_properties_t*);
-	int (*get_data_frame)(const struct data_description_t*, const struct dataset_properties_t*, int, int, void*);
-	void *extra;
-	void (*free_extra)(struct data_description_t*);
+struct nxs_ds_desc_t {
+	struct ds_desc_t base;
 };
 
-void free_nxs_data_description(struct data_description_t *desc);
-
-struct eiger_data_description_t {
+struct eiger_ds_desc_t {
+	struct ds_desc_t base;
 	int n_data_blocks;
 	int *block_sizes;
-	int (*raw_frame_func)(const struct data_description_t*, const char*, hsize_t*, hsize_t*, int, void*);
+	int (*frame_func)(const struct ds_desc_t*, const char*, const hsize_t*, const hsize_t*, const int, void*);
 };
 
-void free_eiger_data_description(struct data_description_t *desc);
-
-struct optimised_eiger_data_description_t {
-	struct eiger_data_description_t base;
-	int n_filter_params;
-	unsigned int bs_filter_params[BS_H5_N_PARAMS];
+struct opt_eiger_ds_desc_t {
+	struct eiger_ds_desc_t base;
+	int bs_applied;
+	unsigned int bs_params[BS_H5_N_PARAMS];
 };
 
-void free_optimised_eiger_data_description(struct data_description_t *desc);
+int get_detector_info(const hid_t fid, struct ds_desc_t **desc);
 
 struct det_visit_objects_t {
 	hid_t nxdata;
 	hid_t nxdetector;
 };
-
-void clear_det_visit_objects(struct det_visit_objects_t *objects);
-
-int get_nxs_dataset_dims(const struct data_description_t *desc, struct dataset_properties_t *properties);
-
-int fill_data_descriptor(struct data_description_t *data_desc, struct det_visit_objects_t *visit_result);
-
-int extract_detector_info(const hid_t fid, struct data_description_t *data_desc, struct dataset_properties_t *ds_prop);
 
 #endif /* NXS_XDS_FILE_H */

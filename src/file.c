@@ -43,24 +43,26 @@ void clear_det_visit_objects(struct det_visit_objects_t *objects) {
 }
 
 
-void free_nxs_data_description(struct data_description_t *desc) {
-	if (desc->extra) free(desc->extra); /* should just be NULL */
-	desc->extra = NULL;
+void free_ds_desc(struct ds_desc_t *desc) {
+	H5Gclose(desc->det_g_id);
+	H5Gclose(desc->data_g_id);
+	free(desc);
 }
 
-
-void free_eiger_data_description(struct data_description_t *desc) {
-	if (!desc->extra) return;
-	struct eiger_data_description_t *extra = desc->extra;
-	if (extra->block_sizes) free(extra->block_sizes);
-	free(extra);
-	desc->extra = NULL;
+void free_nxs_desc(struct ds_desc_t *desc) {
+	free_ds_desc(desc);
 }
 
-void free_optimised_eiger_data_description(struct data_description_t *desc) {
-	/* no extra memory is allocated for the optimised struct definition, so call the original */
-	free_eiger_data_description(desc);
+void free_eiger_desc(struct ds_desc_t *desc) {
+	struct eiger_ds_desc_t *e_desc = (struct eiger_ds_desc_t *) desc;
+	free(e_desc->block_sizes);
+	free_ds_desc(desc);
 }
+
+void free_opt_eiger_desc(struct ds_desc_t *desc) {
+	free_eiger_desc(desc);
+}
+
 
 
 double scale_from_units(const char* unit_string) {
@@ -87,13 +89,12 @@ double scale_from_units(const char* unit_string) {
 	}
 }
 
-int get_nxs_dataset_dims(const struct data_description_t *desc, struct dataset_properties_t *properties) {
+int get_nxs_dataset_dims(struct ds_desc_t *desc) {
 	hid_t g_id, ds_id, s_id, t_id;
 	int retval = 0;
 	int ndims = 0;
 	int width = 0;
-	hsize_t dims[3] = {0};
-	g_id = desc->data_group_id;;
+	g_id = desc->data_g_id;;
 
 	ds_id = H5Dopen2(g_id, "data", H5P_DEFAULT);
 	if (ds_id <= 0) {
@@ -122,12 +123,11 @@ int get_nxs_dataset_dims(const struct data_description_t *desc, struct dataset_p
 		ERROR_JUMP(-1, close_space, message);
 	}
 
-	if (H5Sget_simple_extent_dims(s_id, dims, NULL) < 0) {
+	if (H5Sget_simple_extent_dims(s_id, desc->dims, NULL) < 0) {
 		ERROR_JUMP(-1, close_space, "Error getting dataset dimensions");
 	}
 
-	memcpy(properties->dims, dims, 3 * sizeof(*dims));
-	properties->data_width = width;
+	desc->data_width = width;
 
 close_space:
 	H5Sclose(s_id);
@@ -139,18 +139,18 @@ done:
 	return retval;
 }
 
-int get_frame_simple(const struct data_description_t *desc,
+int get_frame_simple(const struct ds_desc_t *desc,
 		const char *name,
-		hsize_t *frame_idx,
-		hsize_t *frame_size,
-		int data_width,
+		const hsize_t *frame_idx,
+		const hsize_t *frame_size,
+		const int data_width,
 		void *buffer) {
 
 	int retval = 0;
 	herr_t err = 0;
 	hid_t g_id, ds_id, s_id, ms_id, t_id;
 
-	g_id = desc->data_group_id;
+	g_id = desc->data_g_id;
 
 	ds_id = H5Dopen2(g_id, name, H5P_DEFAULT);
 	if (ds_id <= 0) {
@@ -193,11 +193,11 @@ done:
 }
 
 
-int get_frame_from_chunk(const struct data_description_t *desc,
+int get_frame_from_chunk(const struct ds_desc_t *desc,
 		const char *ds_name,
-		hsize_t *frame_idx,
-		hsize_t *frame_size,
-		int requested_data_width,
+		const hsize_t *frame_idx,
+		const hsize_t *frame_size,
+		const int requested_data_width,
 		void *buffer) {
 
 	hid_t d_id = 0;
@@ -207,7 +207,7 @@ int get_frame_from_chunk(const struct data_description_t *desc,
 	hsize_t c_bytes;
 	void *c_buffer = NULL;
 	void *u_buffer = NULL;
-	const struct optimised_eiger_data_description_t *eiger_desc = desc->extra;
+	const struct opt_eiger_ds_desc_t *o_eiger_desc = (struct opt_eiger_ds_desc_t *) desc;
 	int retval = 0;
 	size_t raw_data_width = 0;
 
@@ -218,7 +218,7 @@ int get_frame_from_chunk(const struct data_description_t *desc,
 		ERROR_JUMP(-1, done, message);
 	}
 
-	d_id = H5Dopen(desc->data_group_id, ds_name, H5P_DEFAULT);
+	d_id = H5Dopen(desc->data_g_id, ds_name, H5P_DEFAULT);
 	if (d_id < 0) {
 		char message[64];
 		sprintf(message, "Error opening dataset %.32s", ds_name);
@@ -271,7 +271,7 @@ int get_frame_from_chunk(const struct data_description_t *desc,
 	}
 
 	if (bslz4_decompress(
-				eiger_desc->bs_filter_params,
+				o_eiger_desc->bs_params,
 				c_bytes,
 				c_buffer,
 				raw_data_width * frame_size[1] * frame_size[2],
@@ -349,19 +349,18 @@ done:
 
 
 int get_nxs_frame(
-		const struct data_description_t *desc,
-		const struct dataset_properties_t *ds_prop,
-		int n,
-		int data_width,
+		const struct ds_desc_t *desc,
+		const int n,
+		const int data_width,
 		void *buffer) {
 	/* detector data are the two inner most indices */
 	/* TODO: handle ndims > 3 and select appropriately */
 	int retval = 0;
 	hsize_t frame_idx[3] = {n, 0, 0};
-	hsize_t frame_size[3] = {1, ds_prop->dims[1], ds_prop->dims[2]};
-	if (n < 0 || n >= ds_prop->dims[0]) {
+	hsize_t frame_size[3] = {1, desc->dims[1], desc->dims[2]};
+	if (n < 0 || n >= desc->dims[0]) {
 		char message[64];
-		sprintf(message, "Selected frame %d is out of range valid range [0, %d]", n, (int) ds_prop->dims[0] - 1);
+		sprintf(message, "Selected frame %d is out of range valid range [0, %d]", n, (int) desc->dims[0] - 1);
 		ERROR_JUMP(-1, done, message);
 	}
 	retval = get_frame_simple(desc, "data", frame_idx, frame_size, data_width, buffer);
@@ -374,22 +373,21 @@ done:
 
 
 int get_dectris_eiger_frame(
-		const struct data_description_t *desc,
-		const struct dataset_properties_t *ds_prop,
+		const struct ds_desc_t *desc,
 		int n,
 		int data_width,
 		void *buffer) {
 
 	int retval = 0;
 	int block, frame_count, idx;
-	struct eiger_data_description_t *eiger_desc = desc->extra;
+	struct eiger_ds_desc_t *eiger_desc = (struct eiger_ds_desc_t*) desc;
 	char data_name[16] = {0};
 	hsize_t frame_idx[3] = {0, 0, 0};
-	hsize_t frame_size[3] = {1, ds_prop->dims[1], ds_prop->dims[2]};
+	hsize_t frame_size[3] = {1, desc->dims[1], desc->dims[2]};
 
-	if (n < 0 || n >= ds_prop->dims[0]) {
+	if (n < 0 || n >= desc->dims[0]) {
 		char message[64];
-		sprintf(message, "Selected frame %d is out of range valid range [0, %d]", n, (int) ds_prop->dims[0] - 1);
+		sprintf(message, "Selected frame %d is out of range valid range [0, %d]", n, (int) desc->dims[0] - 1);
 		ERROR_JUMP(-1, done, message);
 	}
 
@@ -400,7 +398,7 @@ int get_dectris_eiger_frame(
 	idx = n - (frame_count - eiger_desc->block_sizes[block]); /* index in current block */
 	frame_idx[0] = idx;
 	sprintf(data_name, "data_%06d", block + 1);
-	retval = eiger_desc->raw_frame_func(desc, data_name, frame_idx, frame_size, data_width, buffer);
+	retval = eiger_desc->frame_func(desc, data_name, frame_idx, frame_size, data_width, buffer);
 	if (retval < 0) {
 		ERROR_JUMP(retval, done, "");
 	}
@@ -409,7 +407,7 @@ done:
 }
 
 
-int get_dectris_eiger_dataset_dims(const struct data_description_t *desc, struct dataset_properties_t *properties) {
+int get_dectris_eiger_dataset_dims(struct ds_desc_t *desc) {
 	int retval = 0;
 	int n_datas = 0;
 	int n = 0;
@@ -418,11 +416,12 @@ int get_dectris_eiger_dataset_dims(const struct data_description_t *desc, struct
 	char ds_name[16] = {0}; /* 12 chars in "data_xxxxxx\0" */
 	int *frame_counts = NULL;
 	hsize_t dims[3] = {0};
+	struct eiger_ds_desc_t *eiger_desc = (struct eiger_ds_desc_t*) desc;
 
 	/* datasets are "data_%06d % n" - need to determine how many of these there are and what the ranges are */
 
 	sprintf(ds_name, "data_%06d", n_datas + 1);
-	while (H5Lexists(desc->data_group_id, ds_name, H5P_DEFAULT) > 0) {
+	while (H5Lexists(desc->data_g_id, ds_name, H5P_DEFAULT) > 0) {
 		sprintf(ds_name, "data_%06d", ++n_datas + 1);
 	}
 
@@ -432,7 +431,7 @@ int get_dectris_eiger_dataset_dims(const struct data_description_t *desc, struct
 		hid_t ds_id, t_id, s_id;
 		hsize_t block_dims[3] = {0};
 		sprintf(ds_name, "data_%06d", n + 1);
-		ds_id = H5Dopen2(desc->data_group_id, ds_name, H5P_DEFAULT);
+		ds_id = H5Dopen2(desc->data_g_id, ds_name, H5P_DEFAULT);
 		if (ds_id < 0) {
 			char message[64];
 			sprintf("Unable to open dataset %.16s", ds_name);
@@ -481,10 +480,10 @@ loop_end:
 	if (retval < 0) {
 		free(frame_counts);
 	} else {
-		memcpy(properties->dims, dims, 3 * sizeof(*dims));
-		properties->data_width = data_width;
-		((struct eiger_data_description_t *) desc->extra)->n_data_blocks = n_datas;
-		((struct eiger_data_description_t *) desc->extra)->block_sizes = frame_counts;
+		memcpy(desc->dims, dims, 3 * sizeof(*dims));
+		desc->data_width = data_width;
+		eiger_desc->n_data_blocks = n_datas;
+		eiger_desc->block_sizes = frame_counts;
 	}
 	return retval;
 }
@@ -596,12 +595,12 @@ done:
 }
 
 
-int get_nxs_pixel_info(const struct data_description_t *desc, double *x_size, double *y_size) {
+int get_nxs_pixel_info(const struct ds_desc_t *desc, double *x_size, double *y_size) {
 	int retval = 0;
-	if (read_pixel_info(desc->det_group_id, "x_pixel_size", x_size) < 0) {
+	if (read_pixel_info(desc->det_g_id, "x_pixel_size", x_size) < 0) {
 		ERROR_JUMP(-1, done, "");
 	}
-	if (read_pixel_info(desc->det_group_id, "y_pixel_size", y_size) < 0) {
+	if (read_pixel_info(desc->det_g_id, "y_pixel_size", y_size) < 0) {
 		ERROR_JUMP(-1, done, "");
 	}
 done:
@@ -609,12 +608,12 @@ done:
 }
 
 
-int get_dectris_eiger_pixel_info(const struct data_description_t *desc, double *x_size, double *y_size) {
+int get_dectris_eiger_pixel_info(const struct ds_desc_t *desc, double *x_size, double *y_size) {
 	int retval = 0;
-	if (read_pixel_info(desc->det_group_id, "detectorSpecific/x_pixel_size", x_size) < 0) {
+	if (read_pixel_info(desc->det_g_id, "detectorSpecific/x_pixel_size", x_size) < 0) {
 		ERROR_JUMP(-1, done, "");
 	}
-	if (read_pixel_info(desc->det_group_id, "detectorSpecific/y_pixel_size", y_size) < 0) {
+	if (read_pixel_info(desc->det_g_id, "detectorSpecific/y_pixel_size", y_size) < 0) {
 		ERROR_JUMP(-1, done, "");
 	}
 done:
@@ -622,12 +621,12 @@ done:
 }
 
 
-int get_nxs_pixel_mask(const struct data_description_t *desc, int *buffer) {
+int get_nxs_pixel_mask(const struct ds_desc_t *desc, int *buffer) {
 	int retval = 0;
 	hid_t ds_id;
 	herr_t err = 0;
 
-	ds_id = H5Dopen2(desc->det_group_id, "pixel_mask", H5P_DEFAULT);
+	ds_id = H5Dopen2(desc->det_g_id, "pixel_mask", H5P_DEFAULT);
 	if (ds_id < 0) {
 		ERROR_JUMP(-1, done, "Error opening pixel_mask dataset");
 	}
@@ -644,12 +643,12 @@ done:
 }
 
 
-int get_dectris_eiger_pixel_mask(const struct data_description_t *desc, int *buffer) {
+int get_dectris_eiger_pixel_mask(const struct ds_desc_t *desc, int *buffer) {
 	int retval = 0;
 	hid_t ds_id;
 	herr_t err = 0;
 
-	ds_id = H5Dopen2(desc->det_group_id, "detectorSpecific/pixel_mask", H5P_DEFAULT);
+	ds_id = H5Dopen2(desc->det_g_id, "detectorSpecific/pixel_mask", H5P_DEFAULT);
 	if (ds_id < 0) {
 		ERROR_JUMP(-1, done, "Error opening detectorSpecific/pixel_mask");
 	}
@@ -777,7 +776,7 @@ done:
 int check_for_chunk_read(
 		hid_t g_id,
 		const char* ds_name,
-		struct optimised_eiger_data_description_t *desc) {
+		struct opt_eiger_ds_desc_t *desc) {
 
 	int retval = 0;
 	int n_filters;
@@ -843,7 +842,7 @@ int check_for_chunk_read(
 
 	if (n_filters == 1) {
 		filter = H5Pget_filter2(dcpl, 0, &filter_flags,
-				&cd_nelems, desc->bs_filter_params,
+				&cd_nelems, desc->bs_params,
 				name_len, filter_name,
 				&filter_config);
 		if (filter < 0) {
@@ -859,8 +858,9 @@ int check_for_chunk_read(
 					BS_H5_N_PARAMS, cd_nelems);
 			ERROR_JUMP(-1, done, message);
 		}
+		desc->bs_applied = 1;
 	} else {
-		desc->n_filter_params = 0;
+		desc->bs_applied = 0;
 	}
 
 	retval = 1;
@@ -872,84 +872,89 @@ done:
 	return retval;
 }
 
-int fill_data_descriptor(struct data_description_t *data_desc, struct det_visit_objects_t *visit_result) {
+int create_dataset_descriptor(struct ds_desc_t **desc, struct det_visit_objects_t *visit_result) {
 	int retval = 0;
-	data_desc->det_group_id = visit_result->nxdetector;
+	hid_t g_id, ds_id;
+	int (*pxl_func)(const struct ds_desc_t*, double*, double*);
+	int (*pxl_mask_func)(const struct ds_desc_t*, int*);
+	int (*ds_prop_func)(struct ds_desc_t*);
+	int (*frame_func)(const struct ds_desc_t*, int, int, void*);
+	void (*free_func)(struct ds_desc_t*);
+	struct ds_desc_t *output;
+
+	g_id = visit_result->nxdetector;
 
 	/* determine the pixel information location */
-	if (H5Lexists(data_desc->det_group_id, "x_pixel_size", H5P_DEFAULT) > 0 &&
-			H5Lexists(data_desc->det_group_id, "y_pixel_size", H5P_DEFAULT)) {
-		data_desc->get_pixel_properties = &get_nxs_pixel_info;
-	} else if (H5Lexists(data_desc->det_group_id, "detectorSpecific", H5P_DEFAULT) > 0 &&
-			H5Lexists(data_desc->det_group_id, "detectorSpecific/x_pixel_size", H5P_DEFAULT) > 0 &&
-			H5Lexists(data_desc->det_group_id, "detectorSpecific/y_pixel_size", H5P_DEFAULT) > 0) {
-		data_desc->get_pixel_properties = &get_dectris_eiger_pixel_info;
+	if (H5Lexists(g_id, "x_pixel_size", H5P_DEFAULT) > 0 &&
+			H5Lexists(g_id, "y_pixel_size", H5P_DEFAULT)) {
+		pxl_func = &get_nxs_pixel_info;
+	} else if (H5Lexists(g_id, "detectorSpecific", H5P_DEFAULT) > 0 &&
+			H5Lexists(g_id, "detectorSpecific/x_pixel_size", H5P_DEFAULT) > 0 &&
+			H5Lexists(g_id, "detectorSpecific/y_pixel_size", H5P_DEFAULT) > 0) {
+		pxl_func = &get_dectris_eiger_pixel_info;
 	} else {
-		data_desc->get_pixel_properties = NULL;
 		ERROR_JUMP(-1, done, "Could not locate x_pixel_size and y_pixel_size");
 	}
 
 	/* determine pixel mask location */
-	if (H5Lexists(data_desc->det_group_id, "pixel_mask", H5P_DEFAULT) > 0) {
-		data_desc->get_pixel_mask = &get_nxs_pixel_mask;
-	} else if (H5Lexists(data_desc->det_group_id, "detectorSpecific", H5P_DEFAULT) > 0 &&
-			H5Lexists(data_desc->det_group_id, "detectorSpecific/pixel_mask", H5P_DEFAULT) > 0) {
-		data_desc->get_pixel_mask = &get_dectris_eiger_pixel_mask;
+	if (H5Lexists(g_id, "pixel_mask", H5P_DEFAULT) > 0) {
+		pxl_mask_func = &get_nxs_pixel_mask;
+	} else if (H5Lexists(g_id, "detectorSpecific", H5P_DEFAULT) > 0 &&
+			H5Lexists(g_id, "detectorSpecific/pixel_mask", H5P_DEFAULT) > 0) {
+		pxl_mask_func = &get_dectris_eiger_pixel_mask;
 	} else {
-		data_desc->get_pixel_mask = NULL;
 		ERROR_JUMP(-1, done, "Could not locate pixel_mask");
 	}
 
 	/* determine where the data is stored and what strategy to use */
 	/* we select the "dectris-eiger" strategy if both are valid due to
-	 * potential confusion with the sizes of a virtual dataset (and possible
-	 * failure opening it if the library version is not up to date)
+	 * potential confusion with the sizes of a virtual dataset, possible failure
+	 * opening if we're using an old library version, and the potential to use the
+	 * optimised chunk read strategy
 	 */
 	if (H5Lexists(visit_result->nxdetector, "data_000001", H5P_DEFAULT) > 0) {
-		data_desc->data_group_id = visit_result->nxdetector;
-		data_desc->get_data_properties = &get_dectris_eiger_dataset_dims;
-		data_desc->get_data_frame = &get_dectris_eiger_frame;
+		ds_id = visit_result->nxdetector;
+		ds_prop_func = &get_dectris_eiger_dataset_dims;
+		frame_func = &get_dectris_eiger_frame;
 	} else if (H5Lexists(visit_result->nxdetector, "data", H5P_DEFAULT) > 0) {
-		data_desc->data_group_id = visit_result->nxdetector;
-		data_desc->get_data_properties = &get_nxs_dataset_dims;
-		data_desc->get_data_frame = &get_nxs_frame;
+		ds_id = visit_result->nxdetector;
+		ds_prop_func = &get_nxs_dataset_dims;
+		frame_func = &get_nxs_frame;
 	} else if (H5Lexists(visit_result->nxdata, "data_000001", H5P_DEFAULT) > 0) {
-		data_desc->data_group_id = visit_result->nxdata;
-		data_desc->get_data_properties = &get_dectris_eiger_dataset_dims;
-		data_desc->get_data_frame = &get_dectris_eiger_frame;
+		ds_id = visit_result->nxdata;
+		ds_prop_func = &get_dectris_eiger_dataset_dims;
+		frame_func = &get_dectris_eiger_frame;
 	} else if (H5Lexists(visit_result->nxdata, "data", H5P_DEFAULT) > 0) {
-		data_desc->data_group_id = visit_result->nxdata;
-		data_desc->get_data_properties = &get_nxs_dataset_dims;
-		data_desc->get_data_frame = &get_nxs_frame;
+		ds_id = visit_result->nxdata;
+		ds_prop_func = &get_nxs_dataset_dims;
+		frame_func = &get_nxs_frame;
 	} else {
-		data_desc->data_group_id = 0;
-		data_desc->get_data_properties = NULL;
-		data_desc->get_data_frame = NULL;
 		ERROR_JUMP(-1, done, "Could not locate detector dataset");
 	}
 
-	if (data_desc->get_data_properties == &get_dectris_eiger_dataset_dims) {
+
+	if (ds_prop_func == &get_dectris_eiger_dataset_dims) {
 
 		/* setup the "extra info" structs */
-		struct eiger_data_description_t *eiger_desc;
-		struct optimised_eiger_data_description_t *o_eiger_desc;
+		struct eiger_ds_desc_t *eiger_desc;
+		struct opt_eiger_ds_desc_t *o_eiger_desc;
 
 		eiger_desc = malloc(sizeof(*eiger_desc));
 		if (!eiger_desc) {
 			ERROR_JUMP(-1, done, "Memory error creating data description for Eiger");
 		}
 		memset(eiger_desc, 0, sizeof(*eiger_desc));
-		eiger_desc->raw_frame_func = &get_frame_simple;
+		eiger_desc->frame_func = &get_frame_simple;
 
 		o_eiger_desc = malloc(sizeof(*o_eiger_desc));
 		if (!o_eiger_desc) {
 			free(eiger_desc);
 			ERROR_JUMP(-1, done, "Memory error creating data description for optimised Eiger");
 		}
-		o_eiger_desc->base.raw_frame_func = &get_frame_from_chunk;
+		o_eiger_desc->base.frame_func = &get_frame_from_chunk;
 
 		/* check if we can perform the optimised chunk read */
-		retval = check_for_chunk_read(data_desc->data_group_id, "data_000001", o_eiger_desc);
+		retval = check_for_chunk_read(ds_id, "data_000001", o_eiger_desc);
 		if (retval < 0) {
 			free(o_eiger_desc);
 			free(eiger_desc);
@@ -957,27 +962,38 @@ int fill_data_descriptor(struct data_description_t *data_desc, struct det_visit_
 		}
 		if (retval) {
 			free(eiger_desc);
-			data_desc->extra = o_eiger_desc;
-			data_desc->free_extra = free_optimised_eiger_data_description;
+			*(struct opt_eiger_ds_desc_t**) desc = o_eiger_desc;
+			free_func = &free_opt_eiger_desc;
 		} else {
 			free(o_eiger_desc);
-			data_desc->extra = eiger_desc;
-			data_desc->free_extra = free_eiger_data_description;
+			*(struct eiger_ds_desc_t**) desc = eiger_desc;
+			free_func = &free_eiger_desc;
 		}
 
 	} else {
-		data_desc->free_extra = free_nxs_data_description;
+		*desc = malloc(sizeof(struct nxs_ds_desc_t));
+		free_func = &free_nxs_desc;
 	}
+
+	output = *((struct ds_desc_t **) desc);
+	output->det_g_id = g_id;
+	output->data_g_id = ds_id;
+	output->get_pixel_properties = pxl_func;
+	output->get_pixel_mask = pxl_mask_func;
+	output->get_data_frame = frame_func;
+	output->free_desc = free_func;
+
+	ds_prop_func(output);
 
 done:
 	return retval;
 }
 
 
-int extract_detector_info(
+int get_detector_info(
 		const hid_t fid,
-		struct data_description_t *data_desc,
-		struct dataset_properties_t *dataset_prop) {
+		struct ds_desc_t **desc) {
+
 	int retval = 0;
 	herr_t err = 0;
 	struct det_visit_objects_t objects = {0};
@@ -993,12 +1009,9 @@ int extract_detector_info(
 		fprintf(stderr, "WARNING: Could not locate an NXdetector entry\n");
 	}
 
-	if ((retval = fill_data_descriptor(data_desc, &objects)) < 0) {
+	if ((retval = create_dataset_descriptor(desc, &objects)) < 0) {
 		ERROR_JUMP(retval, done, "");
 	};
-	if ((retval = data_desc->get_data_properties(data_desc, dataset_prop)) < 0) {
-		ERROR_JUMP(retval, done, "");
-	}
 
 
 done:

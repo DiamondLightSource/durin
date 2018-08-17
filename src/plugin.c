@@ -16,8 +16,7 @@
 
 
 static hid_t file_id = 0;
-static struct data_description_t data_desc = {0};
-static struct dataset_properties_t ds_prop = {0};
+static struct ds_desc_t *data_desc = NULL;
 static int *mask_buffer = NULL;
 
 
@@ -74,14 +73,14 @@ void plugin_open(
 	}
 
 	reset_error_stack();
-	retval = extract_detector_info(file_id, &data_desc, &ds_prop);
+	retval = get_detector_info(file_id, &data_desc);
 	if (retval < 0) {
 		ERROR_JUMP(-4, done, "");
 	}
 
-	mask_buffer = malloc(ds_prop.dims[1] * ds_prop.dims[2] * sizeof(int));
+	mask_buffer = malloc(data_desc->dims[1] * data_desc->dims[2] * sizeof(int));
 	if (mask_buffer) {
-		retval = data_desc.get_pixel_mask(&data_desc, mask_buffer);
+		retval = data_desc->get_pixel_mask(data_desc, mask_buffer);
 		if (retval < 0) {
 			fprintf(ERROR_OUTPUT, "WARNING: Could not read pixel mask - no masking will be applied\n");
 			dump_error_stack(ERROR_OUTPUT);
@@ -94,6 +93,10 @@ void plugin_open(
 done:
 	*error_flag = retval;
 	if (retval < 0) {
+		if ((data_desc) && (data_desc->free_desc)) {
+			data_desc->free_desc(data_desc);
+			data_desc = NULL;
+		}
 		dump_error_stack(ERROR_OUTPUT);
 	}
 }
@@ -112,15 +115,15 @@ void plugin_get_header(
 	reset_error_stack();
 	fill_info_array(info);
 
-	err = data_desc.get_pixel_properties(&data_desc, &x_pixel_size, &y_pixel_size);
+	err = data_desc->get_pixel_properties(data_desc, &x_pixel_size, &y_pixel_size);
 	if (err < 0) {
 		ERROR_JUMP(err, done, "Failed to retrieve pixel information");
 	}
 
-	*nx = ds_prop.dims[2];
-	*ny = ds_prop.dims[1];
-	*nbytes = ds_prop.data_width;
-	*number_of_frames = ds_prop.dims[0];
+	*nx = data_desc->dims[2];
+	*ny = data_desc->dims[1];
+	*nbytes = data_desc->data_width;
+	*number_of_frames = data_desc->dims[0];
 	*qx = (float) x_pixel_size;
 	*qy = (float) y_pixel_size;
 
@@ -141,13 +144,13 @@ void plugin_get_data(
 	int retval = 0;
 	reset_error_stack();
 	fill_info_array(info);
-	if (data_desc.get_data_frame(&data_desc, &ds_prop, (*frame_number) - 1, sizeof(int), data_array) < 0) {
+	if (data_desc->get_data_frame(data_desc, (*frame_number) - 1, sizeof(int), data_array) < 0) {
 		char message[64] = {0};
 		sprintf(message, "Failed to retrieve data for frame %d", *frame_number);
 		ERROR_JUMP(-2, done, message);
 	}
 	if (mask_buffer) {
-		apply_mask(data_array, mask_buffer, ds_prop.dims[1] * ds_prop.dims[2]);
+		apply_mask(data_array, mask_buffer, data_desc->dims[1] * data_desc->dims[2]);
 	}
 
 done:
@@ -168,7 +171,10 @@ void plugin_close(int *error_flag) {
 	file_id = 0;
 
 	if (mask_buffer) free(mask_buffer);
-	if (data_desc.free_extra) data_desc.free_extra(&data_desc);
+	if (data_desc->free_desc) {
+		data_desc->free_desc(data_desc);
+		data_desc = NULL;
+	}
 	if (H5close() < 0) {
 		*error_flag = -1;
 	}
