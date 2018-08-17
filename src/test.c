@@ -44,6 +44,7 @@ int main(int argc, char **argv) {
 	int frame_idx = 0;
 	int *mask = NULL;
 	int *data = NULL;
+	void *buffer = NULL;
 
 	init_error_handling();
 	if (init_h5_error_handling() < 0) {
@@ -77,9 +78,29 @@ int main(int argc, char **argv) {
 	}
 
 	data = malloc(dims[1] * dims[2] * sizeof(*data));
-	err = desc->get_data_frame(desc, frame_idx, sizeof(*data), data);
+	if (sizeof(*data) != desc->data_width) {
+		buffer = malloc(dims[1] * dims[2] * desc->data_width);
+	} else {
+		buffer = data;
+	}
+
+	err = desc->get_data_frame(desc, frame_idx, buffer);
 	if (err < 0) {
 		ERROR_JUMP(err, done, "");
+	}
+
+	if (buffer != data) {
+		if (desc->data_width == sizeof(signed char)) {
+			CONVERT_BUFFER(buffer, signed char, data, int, dims[1] * dims[2]);
+		} else if (desc->data_width == sizeof(short)) {
+			CONVERT_BUFFER(buffer, short, data, int, dims[1] * dims[2]);
+		} else if (desc->data_width == sizeof(int)) {
+			CONVERT_BUFFER(buffer, int, data, int, dims[1] * dims[2]);
+		} else if (desc->data_width == sizeof(long int)) {
+			CONVERT_BUFFER(buffer, long int, data, int, dims[1] * dims[2]);
+		} else if (desc->data_width == sizeof(long long int)) {
+			CONVERT_BUFFER(buffer, long long int, data, int, dims[1] * dims[2]);
+		}
 	}
 
 	apply_mask(data, mask, dims[1] * dims[2]);
@@ -100,6 +121,7 @@ int main(int argc, char **argv) {
 done:
 	if (fid > 0) H5Fclose(fid);
 	if (data) free(data);
+	if (buffer && (data != buffer)) free(buffer);
 	if (mask) free(mask);
 	if (retval != 0) dump_error_stack(stderr);
 	return retval;

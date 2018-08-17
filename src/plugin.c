@@ -7,6 +7,7 @@
 #include <hdf5.h>
 #include <stdlib.h>
 #include "file.h"
+#include "filters.h"
 #include "plugin.h"
 
 
@@ -42,6 +43,29 @@ void apply_mask(int *data, int *mask, int size) {
 	}
 }
 
+int convert_data_to_int(void *in_buffer, int d_width, int *out_buffer, int length) {
+	/* transfer data to output buffer, performing data conversion as required */
+	int retval = 0;
+	/* TODO: decide how conversion of data should work
+	 * Should we sign extend? Neggia doesn't (casts from uint*), but may be more intuitive */
+	if (d_width == sizeof(signed char)) {
+		CONVERT_BUFFER(in_buffer, signed char, out_buffer, int, length);
+	} else if (d_width == sizeof(short)) {
+		CONVERT_BUFFER(in_buffer, short, out_buffer, int, length);
+	} else if (d_width == sizeof(int)) {
+		CONVERT_BUFFER(in_buffer, int, out_buffer, int, length);
+	} else if (d_width == sizeof(long int)) {
+		CONVERT_BUFFER(in_buffer, long int, out_buffer, int, length);
+	} else if (d_width == sizeof(long long int)) {
+		CONVERT_BUFFER(in_buffer, long long int, out_buffer, int, length);
+	} else {
+		char message[128];
+		sprintf(message, "Unsupported conversion of data width %d to %ld (int)", d_width, sizeof(int));
+		ERROR_JUMP(-1, done, message);
+	}
+done:
+	return retval;
+}
 
 #ifdef __cplusplus
 extern "C" {
@@ -141,14 +165,36 @@ void plugin_get_data(
 		int *data_array,
 		int info[1024],
 		int *error_flag) {
+
 	int retval = 0;
+	int frame_size_px = data_desc->dims[1] * data_desc->dims[2];
 	reset_error_stack();
 	fill_info_array(info);
-	if (data_desc->get_data_frame(data_desc, (*frame_number) - 1, sizeof(int), data_array) < 0) {
+
+	void *buffer = NULL;
+	if (sizeof(*data_array) == data_desc->data_width) {
+		buffer = data_array;
+	} else {
+		buffer = malloc(data_desc->data_width * frame_size_px);
+		if (!buffer) {
+			ERROR_JUMP(-1, done, "Unable to allocate data buffer");
+		}
+	}
+
+	if (data_desc->get_data_frame(data_desc, (*frame_number) - 1, buffer) < 0) {
 		char message[64] = {0};
 		sprintf(message, "Failed to retrieve data for frame %d", *frame_number);
 		ERROR_JUMP(-2, done, message);
 	}
+
+	if (buffer != data_array) {
+		if (convert_data_to_int(buffer, data_desc->data_width, data_array, frame_size_px) < 0) {
+			char message[64];
+			sprintf(message, "Error converting data for frame %d", *frame_number);
+			ERROR_JUMP(-2, done, message);
+		}
+	}
+
 	if (mask_buffer) {
 		apply_mask(data_array, mask_buffer, data_desc->dims[1] * data_desc->dims[2]);
 	}
@@ -158,6 +204,7 @@ done:
 	if (retval < 0) {
 		dump_error_stack(ERROR_OUTPUT);
 	}
+	if (buffer && (buffer != data_array)) free(buffer);
 }
 
 

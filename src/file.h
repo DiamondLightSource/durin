@@ -19,7 +19,7 @@ struct ds_desc_t {
 	int data_width;
 	int (*get_pixel_properties)(const struct ds_desc_t*, double*, double*);
 	int (*get_pixel_mask)(const struct ds_desc_t*, int*);
-	int (*get_data_frame)(const struct ds_desc_t*, const int, const int, void*);
+	int (*get_data_frame)(const struct ds_desc_t*, const int, void*);
 	void (*free_desc)(struct ds_desc_t*);
 };
 
@@ -31,7 +31,7 @@ struct eiger_ds_desc_t {
 	struct ds_desc_t base;
 	int n_data_blocks;
 	int *block_sizes;
-	int (*frame_func)(const struct ds_desc_t*, const char*, const hsize_t*, const hsize_t*, const int, void*);
+	int (*frame_func)(const struct ds_desc_t*, const char*, const hsize_t*, const hsize_t*, void*);
 };
 
 struct opt_eiger_ds_desc_t {

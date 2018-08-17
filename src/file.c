@@ -14,22 +14,6 @@
 #include "err.h"
 #include "filters.h"
 
-hid_t h5_int_type_from_width(const int width) {
-	if (width == sizeof(char)) {
-		return H5T_NATIVE_SCHAR;
-	} else if (width == sizeof(short)) {
-		return H5T_NATIVE_SHORT;
-	} else if (width == sizeof(int)) {
-		return H5T_NATIVE_INT;
-	} else if (width == sizeof(long)) {
-		return H5T_NATIVE_LONG;
-	} else if (width == sizeof(long long)) {
-		return H5T_NATIVE_LLONG;
-	} else {
-		/* TODO: error */
-		return -1;
-	}
-}
 
 void clear_det_visit_objects(struct det_visit_objects_t *objects) {
 	if (objects->nxdata) {
@@ -62,7 +46,6 @@ void free_eiger_desc(struct ds_desc_t *desc) {
 void free_opt_eiger_desc(struct ds_desc_t *desc) {
 	free_eiger_desc(desc);
 }
-
 
 
 double scale_from_units(const char* unit_string) {
@@ -143,7 +126,6 @@ int get_frame_simple(const struct ds_desc_t *desc,
 		const char *name,
 		const hsize_t *frame_idx,
 		const hsize_t *frame_size,
-		const int data_width,
 		void *buffer) {
 
 	int retval = 0;
@@ -162,6 +144,10 @@ int get_frame_simple(const struct ds_desc_t *desc,
 	if (s_id <= 0) {
 		ERROR_JUMP(-1, close_dataset, "Error getting dataspace");
 	}
+	t_id = H5Dget_type(ds_id);
+	if (t_id <= 0) {
+		ERROR_JUMP(-1, close_type, "Error retrieving datatype");
+	}
 	err = H5Sselect_hyperslab(s_id, H5S_SELECT_SET, frame_idx, NULL, frame_size, NULL);
 	if (err < 0) {
 		ERROR_JUMP(-1, close_space, "Error seleting hyperslab");
@@ -171,12 +157,6 @@ int get_frame_simple(const struct ds_desc_t *desc,
 		ERROR_JUMP(-1, close_space, "Could not create dataspace");
 	}
 
-	t_id = h5_int_type_from_width(data_width);
-	if (t_id < 0) {
-		char message[64];
-		sprintf(message, "Could not infer signed integer from width %d", data_width);
-		ERROR_JUMP(-1, close_mspace, message);
-	}
 	err = H5Dread(ds_id, t_id, ms_id, s_id, H5P_DEFAULT, buffer);
 	if (err < 0) {
 		ERROR_JUMP(-1, close_mspace, "Error reading dataset");
@@ -186,6 +166,8 @@ close_mspace:
 	H5Sclose(ms_id);
 close_space:
 	H5Sclose(s_id);
+close_type:
+	H5Tclose(t_id);
 close_dataset:
 	H5Dclose(ds_id);
 done:
@@ -197,19 +179,15 @@ int get_frame_from_chunk(const struct ds_desc_t *desc,
 		const char *ds_name,
 		const hsize_t *frame_idx,
 		const hsize_t *frame_size,
-		const int requested_data_width,
 		void *buffer) {
 
 	hid_t d_id = 0;
-	hid_t t_id = 0;
 	hsize_t c_offset[3] = {frame_idx[0], 0, 0};
 	uint32_t c_filter_mask = 0;
 	hsize_t c_bytes;
 	void *c_buffer = NULL;
-	void *u_buffer = NULL;
 	const struct opt_eiger_ds_desc_t *o_eiger_desc = (struct opt_eiger_ds_desc_t *) desc;
 	int retval = 0;
-	size_t raw_data_width = 0;
 
 	if (frame_idx[1] != 0 || frame_idx[2] != 0) {
 		char message[64];
@@ -225,13 +203,6 @@ int get_frame_from_chunk(const struct ds_desc_t *desc,
 		ERROR_JUMP(-1, done, message);
 	}
 
-	/* TODO: pass down the dataset's data_width so we don't need to do this */
-	t_id = H5Dget_type(d_id);
-	if (t_id < 0) {
-		ERROR_JUMP(-1, done, "Error getting datatype");
-	}
-
-	raw_data_width = H5Tget_size(t_id);
 
 	if (H5Dget_chunk_storage_size(d_id, c_offset, &c_bytes) < 0) {
 		char message[96];
@@ -259,90 +230,20 @@ int get_frame_from_chunk(const struct ds_desc_t *desc,
 		ERROR_JUMP(-1, done, message);
 	}
 
-	if (raw_data_width == requested_data_width) {
-		/* can output straight to the target buffer */
-		u_buffer = buffer;
-	} else {
-		/* must perform a type conversion, so require a second buffer */
-		u_buffer = malloc(raw_data_width * frame_size[1] * frame_size[2]);
-		if (!u_buffer) {
-			ERROR_JUMP(-1, done, "Unable to allocate output buffer for bslz4 decompression");
-		}
-	}
-
 	if (bslz4_decompress(
 				o_eiger_desc->bs_params,
 				c_bytes,
 				c_buffer,
-				raw_data_width * frame_size[1] * frame_size[2],
-				u_buffer) < 0) {
+				desc->data_width * frame_size[1] * frame_size[2],
+				buffer) < 0) {
 		char message[128];
 		sprintf(message, "Error processing chunk %llu from %.32s with bitshuffle_lz4",
 				frame_idx[0], ds_name);
 		ERROR_JUMP(-1, done, message);
 	}
 
-
-	if (u_buffer != buffer) {
-		int could_convert = 1;
-		/* transfer data to output buffer, performing data conversion as required */
-		/* TODO: decide how conversion of data should work
-		 * Should we sign extend? Neggia doesn't (casts from uint*), but may be more intuitive */
-		if (requested_data_width == sizeof(int8_t)) {
-			if (raw_data_width == sizeof(int16_t)) {
-				CONVERT_BUFFER(u_buffer, int16_t, buffer, int8_t, frame_size[1] * frame_size[2]);
-			} else if (raw_data_width == sizeof(int32_t)) {
-				CONVERT_BUFFER(u_buffer, int32_t, buffer, int8_t, frame_size[1] * frame_size[2]);
-			} else if (raw_data_width == sizeof(int64_t)) {
-				CONVERT_BUFFER(u_buffer, int64_t, buffer, int8_t, frame_size[1] * frame_size[2]);
-			} else {
-				could_convert = 0;
-			}
-		} else if (requested_data_width == sizeof(int16_t)) {
-			if (raw_data_width == sizeof(int8_t)) {
-				CONVERT_BUFFER(u_buffer, int8_t, buffer, int16_t, frame_size[1] * frame_size[2]);
-			} else if (raw_data_width == sizeof(int32_t)) {
-				CONVERT_BUFFER(u_buffer, int32_t, buffer, int16_t, frame_size[1] * frame_size[2]);
-			} else if (raw_data_width == sizeof(int64_t)) {
-				CONVERT_BUFFER(u_buffer, int64_t, buffer, int16_t, frame_size[1] * frame_size[2]);
-			} else {
-				could_convert = 0;
-			}
-		} else if (requested_data_width == sizeof(int32_t)) {
-			if (raw_data_width == sizeof(int8_t)) {
-				CONVERT_BUFFER(u_buffer, int8_t, buffer, int32_t, frame_size[1] * frame_size[2]);
-			} else if (raw_data_width == sizeof(int16_t)) {
-				CONVERT_BUFFER(u_buffer, int16_t, buffer, int32_t, frame_size[1] * frame_size[2]);
-			} else if (raw_data_width == sizeof(int64_t)) {
-				CONVERT_BUFFER(u_buffer, int64_t, buffer, int32_t, frame_size[1] * frame_size[2]);
-			} else {
-				could_convert = 0;
-			}
-		} else if (requested_data_width == sizeof(int64_t)) {
-			if (raw_data_width == sizeof(int8_t)) {
-				CONVERT_BUFFER(u_buffer, int8_t, buffer, int64_t, frame_size[1] * frame_size[2]);
-			} else if (raw_data_width == sizeof(int16_t)) {
-				CONVERT_BUFFER(u_buffer, int16_t, buffer, int64_t, frame_size[1] * frame_size[2]);
-			} else if (raw_data_width == sizeof(int32_t)) {
-				CONVERT_BUFFER(u_buffer, int32_t, buffer, int64_t, frame_size[1] * frame_size[2]);
-			} else {
-				could_convert = 0;
-			}
-		} else {
-			could_convert = 0;
-		}
-		if (!could_convert) {
-			char message[128];
-			sprintf(message, "Unsupported conversion of data width %lu to %d for %.32s",
-					raw_data_width, requested_data_width, ds_name);
-			ERROR_JUMP(-1, done, message);
-		}
-	}
-
 done:
 	if (c_buffer) free(c_buffer);
-	if (u_buffer && (u_buffer != buffer)) free(u_buffer);
-	if (t_id) H5Tclose(t_id);
 	if (d_id) H5Dclose(d_id);
 	return retval;
 }
@@ -351,7 +252,6 @@ done:
 int get_nxs_frame(
 		const struct ds_desc_t *desc,
 		const int n,
-		const int data_width,
 		void *buffer) {
 	/* detector data are the two inner most indices */
 	/* TODO: handle ndims > 3 and select appropriately */
@@ -363,7 +263,7 @@ int get_nxs_frame(
 		sprintf(message, "Selected frame %d is out of range valid range [0, %d]", n, (int) desc->dims[0] - 1);
 		ERROR_JUMP(-1, done, message);
 	}
-	retval = get_frame_simple(desc, "data", frame_idx, frame_size, data_width, buffer);
+	retval = get_frame_simple(desc, "data", frame_idx, frame_size, buffer);
 	if (retval < 0) {
 		ERROR_JUMP(retval, done, "");
 	}
@@ -375,7 +275,6 @@ done:
 int get_dectris_eiger_frame(
 		const struct ds_desc_t *desc,
 		int n,
-		int data_width,
 		void *buffer) {
 
 	int retval = 0;
@@ -398,7 +297,7 @@ int get_dectris_eiger_frame(
 	idx = n - (frame_count - eiger_desc->block_sizes[block]); /* index in current block */
 	frame_idx[0] = idx;
 	sprintf(data_name, "data_%06d", block + 1);
-	retval = eiger_desc->frame_func(desc, data_name, frame_idx, frame_size, data_width, buffer);
+	retval = eiger_desc->frame_func(desc, data_name, frame_idx, frame_size, buffer);
 	if (retval < 0) {
 		ERROR_JUMP(retval, done, "");
 	}
@@ -878,7 +777,7 @@ int create_dataset_descriptor(struct ds_desc_t **desc, struct det_visit_objects_
 	int (*pxl_func)(const struct ds_desc_t*, double*, double*);
 	int (*pxl_mask_func)(const struct ds_desc_t*, int*);
 	int (*ds_prop_func)(struct ds_desc_t*);
-	int (*frame_func)(const struct ds_desc_t*, int, int, void*);
+	int (*frame_func)(const struct ds_desc_t*, int, void*);
 	void (*free_func)(struct ds_desc_t*);
 	struct ds_desc_t *output;
 
