@@ -4,19 +4,21 @@
 #include "file.h"
 #include "err.h"
 
-
-void apply_mask(int *data, int *mask, int size) {
-	int *dptr, *mptr;
-	dptr = data;
-	mptr = mask;
-	while (dptr < data + size && mptr < mask + size) {
-		if (*mptr & 0x01) *dptr = -1;
-		if (*mptr & 0xFE) *dptr = -2;
-		dptr++;
-		mptr++;
-	}
+#define COPY_AND_MASK(in, out, size, mask) \
+{ \
+	int i; \
+	if (mask) { \
+		for (i = 0; i < size; ++i) { \
+			out[i] = in[i]; \
+			if (mask[i] & 0xFE) out[i] = -2; \
+			if (mask[i] & 0x01) out[i] = -1; \
+		} \
+	} else { \
+		for (i = 0; i < size; i++) { \
+			out[i] = in[i]; \
+		} \
+	} \
 }
-
 
 int parse_args(int argc, char **argv, char **file_name, int *frame_idx) {
 	int retval = 0;
@@ -91,19 +93,23 @@ int main(int argc, char **argv) {
 
 	if (buffer != data) {
 		if (desc->data_width == sizeof(signed char)) {
-			CONVERT_BUFFER(buffer, signed char, data, int, dims[1] * dims[2]);
+			signed char *in = buffer;
+			COPY_AND_MASK(in, data, dims[1] * dims[2], mask);
 		} else if (desc->data_width == sizeof(short)) {
-			CONVERT_BUFFER(buffer, short, data, int, dims[1] * dims[2]);
+			short *in = buffer;
+			COPY_AND_MASK(in, data, dims[1] * dims[2], mask);
 		} else if (desc->data_width == sizeof(int)) {
-			CONVERT_BUFFER(buffer, int, data, int, dims[1] * dims[2]);
+			int *in = buffer;
+			COPY_AND_MASK(in, data, dims[1] * dims[2], mask);
 		} else if (desc->data_width == sizeof(long int)) {
-			CONVERT_BUFFER(buffer, long int, data, int, dims[1] * dims[2]);
+			long int *in = buffer;
+			COPY_AND_MASK(in, data, dims[1] * dims[2], mask);
 		} else if (desc->data_width == sizeof(long long int)) {
-			CONVERT_BUFFER(buffer, long long int, data, int, dims[1] * dims[2]);
+			long long int *in = buffer;
+			COPY_AND_MASK(in, data, dims[1] * dims[2], mask);
 		}
 	}
 
-	apply_mask(data, mask, dims[1] * dims[2]);
 	{
 		int i, j;
 		int max_i = 30;

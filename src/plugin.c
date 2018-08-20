@@ -16,6 +16,38 @@
 #define ERROR_OUTPUT stderr
 
 
+
+/* mask bits loosely based on what Neggia does and what NeXus says should be done */
+/* basically - anything in the low byte (& 0xFF) means "ignore this" */
+/* Neggia usses the value -2 if bit 1, 2 or 3 are set */
+#define COPY_AND_MASK(in, out, size, mask) \
+{ \
+	int i; \
+	if (mask) { \
+		for (i = 0; i < size; ++i) { \
+			out[i] = in[i]; \
+			if (mask[i] & 0xFF) out[i] = -1; \
+			if (mask[i] & 30) out[i] = -2; \
+		} \
+	} else { \
+		for (i = 0; i < size; i++) { \
+			out[i] = in[i]; \
+		} \
+	} \
+}
+
+#define APPLY_MASK(buffer, mask, size) \
+{ \
+	int i; \
+	if (mask) { \
+		for (i = 0; i < size; ++i) { \
+			if (mask[i] & 0xFF) buffer[i] = -1; \
+			if (mask[i] & 30) buffer[i] = -2; \
+		} \
+	} \
+}
+
+
 static hid_t file_id = 0;
 static struct ds_desc_t *data_desc = NULL;
 static int *mask_buffer = NULL;
@@ -29,35 +61,26 @@ void fill_info_array(int info[1024]) {
 	info[4] = VERSION_TIMESTAMP;
 }
 
-void apply_mask(int *data, int *mask, int size) {
-	int *dptr, *mptr;
-	dptr = data;
-	mptr = mask;
-	while (dptr < data + size && mptr < mask + size) {
-		/* mask bits loosely based on what Neggia does and what NeXus says should be done */
-		/* basically - anything in the low byte (& 0xFF) means "ignore this" */
-		if (*mptr & 0x01) *dptr = -1;
-		if (*mptr & 0xFE) *dptr = -2;
-		dptr++;
-		mptr++;
-	}
-}
-
-int convert_data_to_int(void *in_buffer, int d_width, int *out_buffer, int length) {
+int convert_to_int_and_mask(void *in_buffer, int d_width, int *out_buffer, int length, int *mask) {
 	/* transfer data to output buffer, performing data conversion as required */
 	int retval = 0;
-	/* TODO: decide how conversion of data should work
-	 * Should we sign extend? Neggia doesn't (casts from uint*), but may be more intuitive */
+	/* TODO: decide how conversion of data should work */
+	/* Should we sign extend? Neggia doesn't (casts from uint*), but may be more intuitive */
 	if (d_width == sizeof(signed char)) {
-		CONVERT_BUFFER(in_buffer, signed char, out_buffer, int, length);
+		signed char *in = in_buffer;
+		COPY_AND_MASK(in, out_buffer, length, mask);
 	} else if (d_width == sizeof(short)) {
-		CONVERT_BUFFER(in_buffer, short, out_buffer, int, length);
+		short *in = in_buffer;
+		COPY_AND_MASK(in, out_buffer, length, mask);
 	} else if (d_width == sizeof(int)) {
-		CONVERT_BUFFER(in_buffer, int, out_buffer, int, length);
+		int *in = in_buffer;
+		COPY_AND_MASK(in, out_buffer, length, mask);
 	} else if (d_width == sizeof(long int)) {
-		CONVERT_BUFFER(in_buffer, long int, out_buffer, int, length);
+		long int *in = in_buffer;
+		COPY_AND_MASK(in, out_buffer, length, mask);
 	} else if (d_width == sizeof(long long int)) {
-		CONVERT_BUFFER(in_buffer, long long int, out_buffer, int, length);
+		long long int *in = in_buffer;
+		COPY_AND_MASK(in, out_buffer, length, mask);
 	} else {
 		char message[128];
 		sprintf(message, "Unsupported conversion of data width %d to %ld (int)", d_width, sizeof(int));
@@ -188,15 +211,13 @@ void plugin_get_data(
 	}
 
 	if (buffer != data_array) {
-		if (convert_data_to_int(buffer, data_desc->data_width, data_array, frame_size_px) < 0) {
+		if (convert_to_int_and_mask(buffer, data_desc->data_width, data_array, frame_size_px, mask_buffer) < 0) {
 			char message[64];
 			sprintf(message, "Error converting data for frame %d", *frame_number);
 			ERROR_JUMP(-2, done, message);
 		}
-	}
-
-	if (mask_buffer) {
-		apply_mask(data_array, mask_buffer, data_desc->dims[1] * data_desc->dims[2]);
+	} else {
+		APPLY_MASK(data_array, mask_buffer, frame_size_px);
 	}
 
 done:

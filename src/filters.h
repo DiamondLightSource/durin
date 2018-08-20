@@ -11,15 +11,6 @@
 #define BS_H5_PARAM_LZ4_COMPRESS 2
 
 
-/* Perform type conversion during buffer copy */
-#define CONVERT_BUFFER(in, t_in, out, t_out, size) \
-{ \
-    t_in *pin = in; \
-    t_out *pout = out; \
-    t_in *end = pin + size; \
-    while (pin < end) *pout++ = (t_out) *pin++; \
-}
-
 
 int bslz4_decompress(
 		const unsigned int* bs_params,
