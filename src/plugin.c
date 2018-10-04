@@ -146,6 +146,15 @@ void plugin_get_data(
 		sprintf(message, "Failed to retrieve data for frame %d", *frame_number);
 		ERROR_JUMP(-2, done, message);
 	}
+
+	// nasty hack 
+	for (int ij = 0; ij < nx * ny; ij++) {
+	  if (data_array[ij] == 0xffff) {
+	    data_array[ij] = -2;
+	  }
+	}
+	  
+	
 	if (mask_buffer) {
 		apply_mask(data_array, mask_buffer, ds_prop.dims[1] * ds_prop.dims[2]);
 	}
