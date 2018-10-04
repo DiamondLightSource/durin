@@ -138,7 +138,7 @@ void plugin_get_data(
 		int *data_array,
 		int info[1024],
 		int *error_flag) {
-	int retval = 0;
+	int retval = 0, ij;
 	reset_error_stack();
 	fill_info_array(info);
 	if (data_desc.get_data_frame(&data_desc, &ds_prop, (*frame_number) - 1, sizeof(int), data_array) < 0) {
@@ -148,7 +148,7 @@ void plugin_get_data(
 	}
 
 	// nasty hack 
-	for (int ij = 0; ij < nx * ny; ij++) {
+	for (ij = 0; ij < ds_prop.dims[1] * ds_prop.dims[2]; ij++) {
 	  if (data_array[ij] == 0xffff) {
 	    data_array[ij] = -2;
 	  }
