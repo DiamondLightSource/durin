@@ -8,7 +8,7 @@ BSLZ4_BUILD_DIR = ./bslz4/build
 BSLZ4_INC_DIR = $(BSLZ4_SRC_DIR)
 
 CC=h5cc
-CFLAGS=-Wall -g -O2 -fpic -I$(INC_DIR) -I$(BSLZ4_INC_DIR)
+CFLAGS=-Wall -g -O2 -fpic -I$(INC_DIR) -I$(BSLZ4_INC_DIR) -std=c89
 
 .PHONY: all
 all: plugin example test_plugin
