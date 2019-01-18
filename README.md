@@ -32,6 +32,7 @@ series of datasets named `data_000001`, `data_000002`, etc.
 First ensure that the HDF5 libraries are compiled with:
 
 ```
+export CFLAGS=-fPIC
 ./configure --enable-threadsafe=yes --enable-unsupported
 ```
 
