@@ -29,26 +29,47 @@ series of datasets named `data_000001`, `data_000002`, etc.
 
 
 ## Building
-First ensure that the HDF5 libraries are compiled with:
 
+### Building HDF5 library
+The HDF5 library used when building durin must have been compiled with specific switches enabled
+to allow the durin plugin to be built and used.
+
+Download the HDF5 source code (https://www.hdfgroup.org/downloads/hdf5/source-code) and extract
+to any directory (referred to as `/hdf5_dir`), and run the following commands.
 ```
+cd /hdf5_dir
+mkdir build
+cd build
 export CFLAGS=-fPIC
-./configure --enable-threadsafe=yes --enable-unsupported
+../configure --enable-threadsafe --enable-deprecated-symbols --enable-hl --enable-unsupported
+make
+make check
+make install
 ```
+The hdf5 tools and libraries should now be located in `/hdf5_dir/build/hdf5`
 
-former is neeed to ensure that XDS in parallel mode will work, latter
-to ensure that the chunk read (which for opaque reasons is defined to
-be _high level_) works. Then make sure that wherever this was
-installed, the h5cc is in PATH before:
+For reference, the plugin requires the thread-safe switch and the optimised chunk read function.
+The chunk read function may be defined in the high level library instead of the regular library,
+depending on the exact HDF5 version downloaded (hence the --enable-deprecated-symbols _and_ --enable-hl).
+The unsupported flag enables building with both threadsafe and high-level enabled.
 
+
+### Building durin plugin
+The plugin makefile will use the "h5cc" compiler wrapper, provided by the HDF5 library, which
+must be on your PATH.
+Download or clone the plugin source code (https://github.com/DiamondLightSource/durin)
+into any directory (referred to as `/durin_dir`) and run the following commands.
 ```
-cd durin
+cd /durin_dir
+PATH=/hdf5_dir/build/hdf5/bin:$PATH
 make
 ```
+The plugin is located at `/durin_dir/build/durin-plugin.so` and should be added to the
+XDS.INP file as `LIB=/durin_dir/build/durin-plugin.so`
 
-Plugin file is `build/durin-plugin.so` - this should be added to the
-XDS.INP file i.e. as:
 
+
+## Example XDS.INP
 ```
 DETECTOR=PILATUS MINIMUM_VALID_PIXEL_VALUE=0 OVERLOAD=4096
 LIB=/opt/durin/build/durin-plugin.so
@@ -57,7 +78,6 @@ SENSOR_THICKNESS= 0.450
 !SILICON= 3.953379
 DIRECTION_OF_DETECTOR_X-AXIS= 1.00000 0.00000 0.00000
 DIRECTION_OF_DETECTOR_Y-AXIS= 0.00000 1.00000 0.00000
-NX=2070 NY=2164 QX=0.0750 QY=0.0750
 DETECTOR_DISTANCE= 194.633000
 ORGX= 1041.30 ORGY= 1160.90
 ROTATION_AXIS= 0.00000 -1.00000 -0.00000
@@ -74,4 +94,4 @@ JOB=XYCORR INIT COLSPOT IDXREF DEFPIX INTEGRATE CORRECT
 ```
 
 N.B. the master file is needed, not the .nxs one which follows the
-standard. 
+standard.
