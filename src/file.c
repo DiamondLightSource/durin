@@ -567,7 +567,13 @@ close_dataset:
 	H5Dclose(ds_id);
 done:
 	return retval;
+}
 
+
+int get_null_pixel_mask(const struct ds_desc_t *desc, int *buffer) {
+	hsize_t buffer_length = desc->dims[1] * desc->dims[2];
+	memset(buffer, 0, sizeof(*buffer) * buffer_length);
+	return 0;
 }
 
 
@@ -808,7 +814,8 @@ int create_dataset_descriptor(struct ds_desc_t **desc, struct det_visit_objects_
 			H5Lexists(g_id, "detectorSpecific/pixel_mask", H5P_DEFAULT) > 0) {
 		pxl_mask_func = &get_dectris_eiger_pixel_mask;
 	} else {
-		ERROR_JUMP(-1, done, "Could not locate pixel_mask");
+		pxl_mask_func = &get_null_pixel_mask;
+		fprintf(stderr, "WARNING: Could not find pixel mask - no masking will be applied\n");
 	}
 
 	/* determine where the data is stored and what strategy to use */
