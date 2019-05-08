@@ -8,6 +8,9 @@ See:
 * https://www.dectris.com/features/features-eiger-x/hdf5-and-nexus
 * https://strucbio.biologie.uni-konstanz.de/xdswiki
 
+## Get Durin
+
+Latest release at https://github.com/DiamondLightSource/durin/releases/tag/2019v1
 
 ## Usage
 In your XDS.INP add:
