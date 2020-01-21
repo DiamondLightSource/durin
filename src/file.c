@@ -339,7 +339,7 @@ int get_dectris_eiger_dataset_dims(struct ds_desc_t *desc) {
 		ds_id = H5Dopen2(desc->data_g_id, ds_name, H5P_DEFAULT);
 		if (ds_id < 0) {
 			char message[64];
-			sprintf("Unable to open dataset %.16s", ds_name);
+			sprintf(message, "Unable to open dataset %.16s", ds_name);
 			ERROR_JUMP(-1, loop_end, message);
 		}
 		t_id = H5Dget_type(ds_id);
@@ -410,14 +410,14 @@ int read_pixel_info(hid_t g_id, const char *path, double *size) {
 	ds_id = H5Dopen2(g_id, path, H5P_DEFAULT);
 	if (ds_id < 0) {
 		char message[64];
-		sprintf("Error opening dataset %.32s", path);
+		sprintf(message, "Error opening dataset %.32s", path);
 		ERROR_JUMP(-1, done, message);
 	}
 
 	err = H5Dread(ds_id, H5T_NATIVE_DOUBLE, H5S_ALL, H5S_ALL, H5P_DEFAULT, &value);
 	if (err < 0) {
 		char message[64];
-		sprintf("Error reading dataset %.32s", path);
+		sprintf(message, "Error reading dataset %.32s", path);
 		ERROR_JUMP(-1, close_dataset, message);
 	}
 
@@ -429,8 +429,8 @@ int read_pixel_info(hid_t g_id, const char *path, double *size) {
 		double scale = 1;
 		a_id = H5Aopen(ds_id, "units", H5P_DEFAULT);
 		if (a_id < 0) {
-			char message[64];
-			sprintf("Error openeing units attribute for %.32s after existence check", path);
+			char message[100];
+			sprintf(message, "Error openeing units attribute for %.32s after existence check", path);
 			ERROR_JUMP(-1, close_dataset, message);
 		}
 
