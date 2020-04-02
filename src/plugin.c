@@ -238,7 +238,10 @@ void plugin_close(int *error_flag) {
 	}
 	file_id = 0;
 
-	if (mask_buffer) free(mask_buffer);
+	if (mask_buffer) {
+	        free(mask_buffer);
+		mask_buffer = NULL;
+	}
 	if (data_desc->free_desc) {
 		data_desc->free_desc(data_desc);
 		data_desc = NULL;
