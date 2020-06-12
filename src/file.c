@@ -257,11 +257,12 @@ done:
 
 int get_nxs_frame(
 		const struct ds_desc_t *desc,
-		const int n,
+		const int nin,
 		void *buffer) {
 	/* detector data are the two inner most indices */
 	/* TODO: handle ndims > 3 and select appropriately */
 	int retval = 0;
+	int n = nin - desc->image_number_offset;
 	hsize_t frame_idx[3] = {n, 0, 0};
 	hsize_t frame_size[3] = {1, desc->dims[1], desc->dims[2]};
 	if (n < 0 || n >= desc->dims[0]) {
@@ -280,10 +281,11 @@ done:
 
 int get_dectris_eiger_frame(
 		const struct ds_desc_t *desc,
-		int n,
+		int nin,
 		void *buffer) {
 
 	int retval = 0;
+	int n = nin - desc->image_number_offset;
 	int block, frame_count, idx;
 	struct eiger_ds_desc_t *eiger_desc = (struct eiger_ds_desc_t*) desc;
 	char data_name[16] = {0};

@@ -125,6 +125,13 @@ void plugin_open(
 		ERROR_JUMP(-4, done, "");
 	}
 
+	data_desc->image_number_offset = 0;
+	char *cenv;
+	cenv = getenv("DURIN_IMAGE_NUMBER_OFFSET");
+	if (cenv!=NULL) {
+	  data_desc->image_number_offset = atoi(cenv);
+	}
+
 	mask_buffer = malloc(data_desc->dims[1] * data_desc->dims[2] * sizeof(int));
 	if (mask_buffer) {
 		retval = data_desc->get_pixel_mask(data_desc, mask_buffer);
