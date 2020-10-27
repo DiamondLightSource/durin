@@ -9,8 +9,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
-#include "file.h"
+
 #include "err.h"
+#include "file.h"
 #include "filters.h"
 
 void clear_det_visit_objects(struct det_visit_objects_t *objects) {

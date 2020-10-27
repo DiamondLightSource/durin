@@ -3,11 +3,12 @@
  * Author: Charles Mita
  */
 
-#include "plugin.h"
-#include "file.h"
-#include "filters.h"
 #include <hdf5.h>
 #include <stdlib.h>
+
+#include "file.h"
+#include "filters.h"
+#include "plugin.h"
 
 /* XDS does not provide an error callback facility, so just write to stderr
    for now - generally regarded as poor practice */

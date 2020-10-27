@@ -5,6 +5,7 @@
 
 #include <hdf5.h>
 #include <stdio.h>
+
 #include "err.h"
 
 struct error_stack_t {
