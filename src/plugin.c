@@ -35,6 +35,28 @@
     }                                                                          \
   }
 
+#define COPY_AND_MASK2(in, out, size, mask, max)                               \
+  {                                                                            \
+    int i;                                                                     \
+    if (mask) {                                                                \
+      for (i = 0; i < size; ++i) {                                             \
+        out[i] = in[i];                                                        \
+        if (mask[i] & 0xFF)                                                    \
+          out[i] = -1;                                                         \
+        if (mask[i] & 30)                                                      \
+          out[i] = -2;                                                         \
+      }                                                                        \
+    } else {                                                                   \
+      for (i = 0; i < size; i++) {                                             \
+        out[i] = in[i];                                                        \
+      }                                                                        \
+    }                                                                          \
+    for (i = 0; i < size; i++) {                                               \
+      if (out[i] > max)                                                        \
+        out[i] -= (max + 2);                                                   \
+    }                                                                          \
+  }
+
 #define APPLY_MASK(buffer, mask, size)                                         \
   {                                                                            \
     int i;                                                                     \
@@ -60,19 +82,23 @@ void fill_info_array(int info[1024]) {
   info[4] = VERSION_TIMESTAMP;
 }
 
+/* transfer data to output buffer, performing data conversion as required
+
+   this will:
+   - unpack value to be a standard signed integer in size
+   - apply the mask if the mask is set
+   - apply "special values" otherwise e.g. 0xfffe-> -2; 0xffff->-1
+
+ */
 int convert_to_int_and_mask(void *in_buffer, int d_width, int *out_buffer,
                             int length, int *mask) {
-  /* transfer data to output buffer, performing data conversion as required */
   int retval = 0;
-  /* TODO: decide how conversion of data should work */
-  /* Should we sign extend? Neggia doesn't (casts from uint*), but may be more
-   * intuitive */
   if (d_width == sizeof(signed char)) {
-    signed char *in = in_buffer;
-    COPY_AND_MASK(in, out_buffer, length, mask);
+    unsigned char *in = in_buffer;
+    COPY_AND_MASK2(in, out_buffer, length, mask, 0xfd);
   } else if (d_width == sizeof(short)) {
-    short *in = in_buffer;
-    COPY_AND_MASK(in, out_buffer, length, mask);
+    unsigned short *in = in_buffer;
+    COPY_AND_MASK2(in, out_buffer, length, mask, 0xfffd);
   } else if (d_width == sizeof(int)) {
     int *in = in_buffer;
     COPY_AND_MASK(in, out_buffer, length, mask);
