@@ -11,15 +11,13 @@
 #include "plugin.h"
 
 
-/* XDS does not provide an error callback facility, so just write to stderr for now */
-/* generally regarded as poor practice */
+/* XDS does not provide an error callback facility, so just write to stderr
+   for now - generally regarded as poor practice */
 #define ERROR_OUTPUT stderr
 
-
-
-/* mask bits loosely based on what Neggia does and what NeXus says should be done */
-/* basically - anything in the low byte (& 0xFF) means "ignore this" */
-/* Neggia usses the value -2 if bit 1, 2 or 3 are set */
+/* mask bits loosely based on what Neggia does and what NeXus says should be
+   done basically - anything in the low byte (& 0xFF) means "ignore this"
+   Neggia uses the value -2 if bit 1, 2 or 3 are set */
 #define COPY_AND_MASK(in, out, size, mask) \
 { \
 	int i; \
