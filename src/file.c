@@ -104,7 +104,13 @@ int get_nxs_dataset_dims(struct ds_desc_t *desc) {
     ERROR_JUMP(-1, close_space, "Error getting dataset dimensions");
   }
 
-  desc->data_width = width;
+  if ( H5Tequal(t_id,H5T_NATIVE_CHAR)>0 || H5Tequal(t_id,H5T_NATIVE_INT)>0 || H5Tequal(t_id,H5T_NATIVE_SHORT)>0 || H5Tequal(t_id,H5T_NATIVE_LONG)>0 || H5Tequal(t_id,H5T_NATIVE_LLONG)>0 ) {
+    // signed
+    desc->data_width = -width;
+  } else {
+    // unsigned
+    desc->data_width =  width;
+  }
 
 close_space:
   H5Sclose(s_id);
@@ -233,7 +239,7 @@ int get_frame_from_chunk(const struct ds_desc_t *desc, const char *ds_name,
 
   if (o_eiger_desc->bs_applied) {
     if (bslz4_decompress(o_eiger_desc->bs_params, c_bytes, c_buffer,
-                         desc->data_width * frame_size[1] * frame_size[2],
+                         abs(desc->data_width) * frame_size[1] * frame_size[2],
                          buffer) < 0) {
       char message[128];
       sprintf(message,
@@ -350,6 +356,10 @@ int get_dectris_eiger_dataset_dims(struct ds_desc_t *desc) {
     data_width = H5Tget_size(t_id);
     if (data_width <= 0) {
       ERROR_JUMP(-1, close_space, "Unable to get type size");
+    }
+    if ( H5Tequal(t_id,H5T_NATIVE_CHAR)>0 || H5Tequal(t_id,H5T_NATIVE_INT)>0 || H5Tequal(t_id,H5T_NATIVE_SHORT)>0 || H5Tequal(t_id,H5T_NATIVE_LONG)>0 || H5Tequal(t_id,H5T_NATIVE_LLONG)>0 ) {
+      // signed
+      data_width = -data_width;
     }
 
     ndims = H5Sget_simple_extent_ndims(s_id);
