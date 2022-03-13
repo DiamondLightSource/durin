@@ -9,6 +9,12 @@ project(durin LANGUAGES C)
 include(CheckLanguage)
 check_language(Fortran)
 
+# Set the default build type to RelWithDebInfo
+if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+    set(CMAKE_BUILD_TYPE "Release" CACHE STRING "Choose the type of build." FORCE)
+    set_property(CACHE CMAKE_BUILD_TYPE PROPERTY STRINGS "Debug" "Release" "MinSizeRel" "RelWithDebInfo")
+endif()
+
 ###############################################################################
 # Building HDF5 in-tree
 set(FETCHCONTENT_QUIET OFF CACHE BOOL "Quiet Fetching" FORCE)
