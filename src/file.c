@@ -631,7 +631,12 @@ herr_t det_visit_callback(hid_t root_id, const char *name,
     if (mt_id < 0) {
       ERROR_JUMP(-1, free_buffer, "Error creating HDF5 String datatype");
     }
-    if (H5Tset_size(mt_id, str_size == -1 ? H5T_VARIABLE : str_size) < 0) {
+    // set the target string type to be one longer than the recorded string
+    // in keeping with the malloc'd buffer - if this is already a null
+    // terminated string then we will just have two nulls, if it is not
+    // then we won't clobber the last char in the buffer with a null in the
+    // H5Aread call
+    if (H5Tset_size(mt_id, str_size == -1 ? H5T_VARIABLE : str_size + 1) < 0) {
       char message[64];
       sprintf(message, "Error setting string datatype to size %d", str_size);
       ERROR_JUMP(-1, close_mtype, message);
@@ -650,6 +655,7 @@ herr_t det_visit_callback(hid_t root_id, const char *name,
      * terminated and extraneous bytes where being read by strcmp -  set the end
      * byte to null
      */
+
     if (str_size > 0)
       ((char *)buffer)[str_size] = '\0';
     /* test for NXdata or NXdetector */
@@ -805,7 +811,7 @@ int create_dataset_descriptor(struct ds_desc_t **desc,
 
   /* determine the pixel information location */
   if (H5Lexists(g_id, "x_pixel_size", H5P_DEFAULT) > 0 &&
-      H5Lexists(g_id, "y_pixel_size", H5P_DEFAULT)) {
+      H5Lexists(g_id, "y_pixel_size", H5P_DEFAULT) > 0) {
     pxl_func = &get_nxs_pixel_info;
   } else if (H5Lexists(g_id, "detectorSpecific", H5P_DEFAULT) > 0 &&
              H5Lexists(g_id, "detectorSpecific/x_pixel_size", H5P_DEFAULT) >
