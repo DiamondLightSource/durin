@@ -67,11 +67,11 @@ double scale_from_units(const char *unit_string) {
 
 int get_nxs_dataset_dims(struct ds_desc_t *desc) {
   hid_t g_id, ds_id, s_id, t_id;
+  hsize_t dims[3];
   int retval = 0;
   int ndims = 0;
   int width = 0;
   g_id = desc->data_g_id;
-  ;
 
   ds_id = H5Dopen2(g_id, "data", H5P_DEFAULT);
   if (ds_id <= 0) {
@@ -100,8 +100,12 @@ int get_nxs_dataset_dims(struct ds_desc_t *desc) {
     ERROR_JUMP(-1, close_space, message);
   }
 
-  if (H5Sget_simple_extent_dims(s_id, desc->dims, NULL) < 0) {
+  if (H5Sget_simple_extent_dims(s_id, dims, NULL) < 0) {
     ERROR_JUMP(-1, close_space, "Error getting dataset dimensions");
+  }
+
+  if (dims[1] && dims[2]) {
+    for (int j = 0; j < 3; j++) desc->dims[j] = dims[j];
   }
 
   desc->data_width = width;
@@ -325,6 +329,9 @@ int get_dectris_eiger_dataset_dims(struct ds_desc_t *desc) {
   }
 
   frame_counts = malloc(n_datas * sizeof(*frame_counts));
+  for (int j = 0; j < n_datas; j++) {
+    frame_counts[j] = 0;
+  }
 
   for (n = 0; n < n_datas; n++) {
     hid_t ds_id, t_id, s_id;
@@ -361,8 +368,11 @@ int get_dectris_eiger_dataset_dims(struct ds_desc_t *desc) {
       ERROR_JUMP(-1, close_space, "Unable to read dataset dimensions");
     }
 
-    dims[1] = block_dims[1];
-    dims[2] = block_dims[2];
+    // handle missing blocks
+    if (block_dims[1] && block_dims[2]) {
+      dims[1] = block_dims[1];
+      dims[2] = block_dims[2];
+    }
 
     dims[0] += block_dims[0];
     frame_counts[n] = block_dims[0];
@@ -378,9 +388,18 @@ int get_dectris_eiger_dataset_dims(struct ds_desc_t *desc) {
       break;
   }
 
-  if (retval < 0) {
+  // if we failed on the first case then this is a hopeless cause, otherwise
+  // try and work with what we have
+  if ((retval < 0) && (frame_counts[0] == 0)) {
     free(frame_counts);
   } else {
+    // possibly re-write n_datas
+    for (int j = 0; j < n_datas; j++) {
+      if (frame_counts[j] == 0) {
+        n_datas = j;
+        break;
+      }
+    }
     memcpy(desc->dims, dims, 3 * sizeof(*dims));
     desc->data_width = data_width;
     eiger_desc->n_data_blocks = n_datas;
