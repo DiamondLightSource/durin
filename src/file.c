@@ -104,7 +104,13 @@ int get_nxs_dataset_dims(struct ds_desc_t *desc) {
     ERROR_JUMP(-1, close_space, "Error getting dataset dimensions");
   }
 
-  desc->data_width = width;
+  if ( H5Tequal(t_id,H5T_NATIVE_CHAR)>0 || H5Tequal(t_id,H5T_NATIVE_INT)>0 || H5Tequal(t_id,H5T_NATIVE_SHORT)>0 || H5Tequal(t_id,H5T_NATIVE_LONG)>0 || H5Tequal(t_id,H5T_NATIVE_LLONG)>0 ) {
+    // signed
+    desc->data_width = -width;
+  } else {
+    // unsigned
+    desc->data_width =  width;
+  }
 
 close_space:
   H5Sclose(s_id);
@@ -233,7 +239,7 @@ int get_frame_from_chunk(const struct ds_desc_t *desc, const char *ds_name,
 
   if (o_eiger_desc->bs_applied) {
     if (bslz4_decompress(o_eiger_desc->bs_params, c_bytes, c_buffer,
-                         desc->data_width * frame_size[1] * frame_size[2],
+                         abs(desc->data_width) * frame_size[1] * frame_size[2],
                          buffer) < 0) {
       char message[128];
       sprintf(message,
@@ -251,10 +257,11 @@ done:
   return retval;
 }
 
-int get_nxs_frame(const struct ds_desc_t *desc, const int n, void *buffer) {
+int get_nxs_frame(const struct ds_desc_t *desc, const int nin, void *buffer) {
   /* detector data are the two inner most indices */
   /* TODO: handle ndims > 3 and select appropriately */
   int retval = 0;
+  int n = nin - desc->image_number_offset;
   hsize_t frame_idx[3] = {n, 0, 0};
   hsize_t frame_size[3] = {1, desc->dims[1], desc->dims[2]};
   if (n < 0 || n >= desc->dims[0]) {
@@ -271,9 +278,10 @@ done:
   return retval;
 }
 
-int get_dectris_eiger_frame(const struct ds_desc_t *desc, int n, void *buffer) {
+int get_dectris_eiger_frame(const struct ds_desc_t *desc, int nin, void *buffer) {
 
   int retval = 0;
+  int n = nin - desc->image_number_offset;
   int block, frame_count, idx;
   struct eiger_ds_desc_t *eiger_desc = (struct eiger_ds_desc_t *)desc;
   char data_name[16] = {0};
@@ -348,6 +356,10 @@ int get_dectris_eiger_dataset_dims(struct ds_desc_t *desc) {
     data_width = H5Tget_size(t_id);
     if (data_width <= 0) {
       ERROR_JUMP(-1, close_space, "Unable to get type size");
+    }
+    if ( H5Tequal(t_id,H5T_NATIVE_CHAR)>0 || H5Tequal(t_id,H5T_NATIVE_INT)>0 || H5Tequal(t_id,H5T_NATIVE_SHORT)>0 || H5Tequal(t_id,H5T_NATIVE_LONG)>0 || H5Tequal(t_id,H5T_NATIVE_LLONG)>0 ) {
+      // signed
+      data_width = -data_width;
     }
 
     ndims = H5Sget_simple_extent_ndims(s_id);

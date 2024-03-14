@@ -17,24 +17,41 @@
 /* mask bits loosely based on what Neggia does and what NeXus says should be
    done basically - anything in the low byte (& 0xFF) means "ignore this"
    Neggia uses the value -2 if bit 1, 2 or 3 are set */
-#define COPY_AND_MASK(in, out, size, mask)                                     \
+/* CV-GPhL-20210408: we want more control over the value non-masked
+   pixels should be set to. */
+#define COPY_AND_MASK(in, value, setValue, out, size, mask)                    \
   {                                                                            \
     int i;                                                                     \
-    if (mask) {                                                                \
-      for (i = 0; i < size; ++i) {                                             \
-        out[i] = in[i];                                                        \
-        if (mask[i] & 0xFF)                                                    \
-          out[i] = -1;                                                         \
-        if (mask[i] & 30)                                                      \
-          out[i] = -2;                                                         \
+    if (value!=0) {                                                            \
+      if (mask) {                                                              \
+        for (i = 0; i < size; ++i) {                                           \
+          out[i] = (in[i] == value) ? setValue : in[i];                        \
+          if (mask[i] & 0xFF)                                                  \
+            out[i] = -1;                                                       \
+          if (mask[i] & 30)                                                    \
+            out[i] = -2;                                                       \
+        }                                                                      \
+      } else {                                                                 \
+        for (i = 0; i < size; i++) {                                           \
+          out[i] = (in[i] == value) ? setValue : in[i];                        \
+        }                                                                      \
       }                                                                        \
     } else {                                                                   \
-      for (i = 0; i < size; i++) {                                             \
-        out[i] = in[i];                                                        \
+      if (mask) {                                                              \
+        for (i = 0; i < size; ++i) {                                           \
+          out[i] = in[i];                                                      \
+          if (mask[i] & 0xFF)                                                  \
+            out[i] = -1;                                                       \
+          if (mask[i] & 30)                                                    \
+            out[i] = -2;                                                       \
+        }                                                                      \
+      } else {                                                                 \
+        for (i = 0; i < size; i++) {                                           \
+          out[i] = in[i];                                                      \
+        }                                                                      \
       }                                                                        \
     }                                                                          \
   }
-
 #define APPLY_MASK(buffer, mask, size)                                         \
   {                                                                            \
     int i;                                                                     \
@@ -58,36 +75,97 @@ void fill_info_array(int info[1024]) {
   info[2] = VERSION_MINOR;
   info[3] = VERSION_PATCH;
   info[4] = VERSION_TIMESTAMP;
+  info[5] = 0; // image number offset
+  info[6] = -1; // marked pixels not already in pixel_mask: reset to this value
+
+  char *cenv;
+  cenv = getenv("DURIN_IMAGE_NUMBER_OFFSET");
+  if (cenv!=NULL) {
+    info[5] = atoi(cenv);
+  }
+  cenv = getenv("DURIN_RESET_UNMASKED_PIXEL");
+  if (cenv!=NULL) {
+    info[6] = atoi(cenv);
+  }
+
 }
 
-int convert_to_int_and_mask(void *in_buffer, int d_width, int *out_buffer,
+int convert_to_int_and_mask(void *in_buffer, int width, int setValue, int *out_buffer,
                             int length, int *mask) {
   /* transfer data to output buffer, performing data conversion as required */
   int retval = 0;
   /* TODO: decide how conversion of data should work */
   /* Should we sign extend? Neggia doesn't (casts from uint*), but may be more
    * intuitive */
-  if (d_width == sizeof(signed char)) {
-    signed char *in = in_buffer;
-    COPY_AND_MASK(in, out_buffer, length, mask);
-  } else if (d_width == sizeof(short)) {
-    short *in = in_buffer;
-    COPY_AND_MASK(in, out_buffer, length, mask);
-  } else if (d_width == sizeof(int)) {
-    int *in = in_buffer;
-    COPY_AND_MASK(in, out_buffer, length, mask);
-  } else if (d_width == sizeof(long int)) {
-    long int *in = in_buffer;
-    COPY_AND_MASK(in, out_buffer, length, mask);
-  } else if (d_width == sizeof(long long int)) {
-    long long int *in = in_buffer;
-    COPY_AND_MASK(in, out_buffer, length, mask);
-  } else {
-    char message[128];
-    sprintf(message, "Unsupported conversion of data width %d to %ld (int)",
-            d_width, sizeof(int));
-    ERROR_JUMP(-1, done, message);
+
+  int d_width = abs(width);
+
+  // CV-20210407
+  //   Dealing with a signed data array: no extra check for marker
+  //   value needed (since data can already take advantage of the
+  //   negative data range). It is unclear though why/when data would
+  //   come in as a signed array in the first place ...
+  if (width<0) {
+    if (d_width == sizeof(signed char)) {
+      // 8-bit
+      signed char *in = in_buffer;
+      COPY_AND_MASK(in, 0, setValue, out_buffer, length, mask);
+    } else if (d_width == sizeof(short)) {
+      // 16-bit
+      short *in = in_buffer;
+      COPY_AND_MASK(in, 0, setValue, out_buffer, length, mask);
+    } else if (d_width == sizeof(int)) {
+      // 16-bit
+      int *in = in_buffer;
+      COPY_AND_MASK(in, 0, setValue, out_buffer, length, mask);
+    } else if (d_width == sizeof(long int)) {
+      // 32-bit
+      long int *in = in_buffer;
+      COPY_AND_MASK(in, 0, setValue, out_buffer, length, mask);
+    } else if (d_width == sizeof(long long int)) {
+      // 64-bit
+      long long int *in = in_buffer;
+      COPY_AND_MASK(in, 0, setValue, out_buffer, length, mask);
+    } else {
+      char message[128];
+      sprintf(message, "Unsupported conversion of data width %d to %ld (int)",
+              d_width, sizeof(int));
+      ERROR_JUMP(-1, done, message);
+    }
   }
+  // CV-20210407
+  //   Dealing with an unsigned data array: extra check for marker
+  //   value required (to handle overloaded pixels correctly if wanted
+  //   - see also DURIN_RESET_UNMASKED_PIXEL environment variable).
+  else {
+    if (d_width == sizeof(unsigned char)) {
+      // 8-bit
+      unsigned char *in = in_buffer;
+      COPY_AND_MASK(in, UINT8_MAX, setValue, out_buffer, length, mask);
+    } else if (d_width == sizeof(unsigned short)) {
+      // 16-bit
+      unsigned short *in = in_buffer;
+      COPY_AND_MASK(in, UINT16_MAX, setValue, out_buffer, length, mask);
+    } else if (d_width == sizeof(unsigned int)) {
+      // 16-bit
+      unsigned int *in = in_buffer;
+      COPY_AND_MASK(in, UINT16_MAX, setValue, out_buffer, length, mask);
+    } else if (d_width == sizeof(unsigned long)) {
+      // 32-bit
+      unsigned long *in = in_buffer;
+      COPY_AND_MASK(in, UINT32_MAX, setValue, out_buffer, length, mask);
+    } else if (d_width == sizeof(unsigned long long)) {
+      // 64-bit
+      unsigned long long *in = in_buffer;
+      COPY_AND_MASK(in, UINT32_MAX, setValue, out_buffer, length, mask);
+    } else {
+      char message[128];
+      sprintf(message, "Unsupported conversion of data width %d to %ld (int)",
+              d_width, sizeof(int));
+      ERROR_JUMP(-1, done, message);
+    }
+  }
+
 done:
   return retval;
 }
@@ -124,6 +202,8 @@ void plugin_open(const char *filename, int info[1024], int *error_flag) {
     ERROR_JUMP(-4, done, "");
   }
 
+  data_desc->image_number_offset = info[5];
+
   mask_buffer = malloc(data_desc->dims[1] * data_desc->dims[2] * sizeof(int));
   if (mask_buffer) {
     retval = data_desc->get_pixel_mask(data_desc, mask_buffer);
@@ -137,6 +217,10 @@ void plugin_open(const char *filename, int info[1024], int *error_flag) {
     }
   }
   retval = 0;
+
+#ifdef GPHL_COMPILE_DATE
+  fprintf(ERROR_OUTPUT, "\n XDS HDF5/Durin plugin %d.%d.%d (DLS, 2018-2023; GPhL, 2020-2024 - built %d)\n", info[1], info[2], info[3], GPHL_COMPILE_DATE);
+#endif
 
 done:
   *error_flag = retval;
@@ -165,7 +249,7 @@ void plugin_get_header(int *nx, int *ny, int *nbytes, float *qx, float *qy,
 
   *nx = data_desc->dims[2];
   *ny = data_desc->dims[1];
-  *nbytes = data_desc->data_width;
+  *nbytes = abs(data_desc->data_width);
   *number_of_frames = data_desc->dims[0];
   *qx = (float)x_pixel_size;
   *qy = (float)y_pixel_size;
@@ -186,10 +270,10 @@ void plugin_get_data(int *frame_number, int *nx, int *ny, int *data_array,
   fill_info_array(info);
 
   void *buffer = NULL;
-  if (sizeof(*data_array) == data_desc->data_width) {
+  if (sizeof(*data_array) == abs(data_desc->data_width)) {
     buffer = data_array;
   } else {
-    buffer = malloc(data_desc->data_width * frame_size_px);
+    buffer = malloc(abs(data_desc->data_width) * frame_size_px);
     if (!buffer) {
       ERROR_JUMP(-1, done, "Unable to allocate data buffer");
     }
@@ -202,7 +286,7 @@ void plugin_get_data(int *frame_number, int *nx, int *ny, int *data_array,
   }
 
   if (buffer != data_array) {
-    if (convert_to_int_and_mask(buffer, data_desc->data_width, data_array,
+    if (convert_to_int_and_mask(buffer, data_desc->data_width, info[6], data_array,
                                 frame_size_px, mask_buffer) < 0) {
       char message[64];
       sprintf(message, "Error converting data for frame %d", *frame_number);
