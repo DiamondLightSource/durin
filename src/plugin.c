@@ -218,6 +218,10 @@ void plugin_open(const char *filename, int info[1024], int *error_flag) {
   }
   retval = 0;
 
+#ifdef GPHL_COMPILE_DATE
+  fprintf(ERROR_OUTPUT, "\n XDS HDF5/Durin plugin %d.%d.%d (DLS, 2018-2023; GPhL, 2020-2024 - built %d)\n", info[1], info[2], info[3], GPHL_COMPILE_DATE);
+#endif
+
 done:
   *error_flag = retval;
   if (retval < 0) {
