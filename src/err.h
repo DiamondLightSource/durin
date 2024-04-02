@@ -6,6 +6,8 @@
 #ifndef NXS_XDS_ERR_H
 #define NXS_XDS_ERR_H
 
+#include <stdio.h>
+
 #define ERR_MAX_FILENAME_LENGTH 64
 #define ERR_MAX_FUNCNAME_LENGTH 128
 #define ERR_MAX_MESSAGE_LENGTH 1024

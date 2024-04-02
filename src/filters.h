@@ -6,6 +6,8 @@
 #ifndef NXS_XDS_FILTER_H
 #define NXS_XDS_FILTER_H
 
+#include <stddef.h>
+
 #define BS_H5_N_PARAMS 5
 #define BS_H5_FILTER_ID 32008
 #define BS_H5_PARAM_LZ4_COMPRESS 2
