@@ -683,6 +683,9 @@ herr_t det_visit_callback(hid_t root_id, const char *name,
       ERROR_JUMP(-1, free_buffer, message);
     }
 
+    /* ensure the buffer is null terminated */
+    buffer[H5Tget_size(t_id)] = '\0';
+
     /* test for NXdata or NXdetector */
     {
       if      (strcmp("NXdata", buffer) == 0) {
