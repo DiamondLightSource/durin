@@ -15,10 +15,12 @@ struct ds_desc_t {
   hid_t data_g_id;
   hsize_t dims[3];
   int data_width;
+  int image_number_offset;
   int (*get_pixel_properties)(const struct ds_desc_t *, double *, double *);
   int (*get_pixel_mask)(const struct ds_desc_t *, int *);
   int (*get_data_frame)(const struct ds_desc_t *, const int, void *);
   void (*free_desc)(struct ds_desc_t *);
+  int i2i[]; // array to hold a translation from the image number requested by XDS and the actual position in the HDF5 file
 };
 
 struct nxs_ds_desc_t {

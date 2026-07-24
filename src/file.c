@@ -104,7 +104,13 @@ int get_nxs_dataset_dims(struct ds_desc_t *desc) {
     ERROR_JUMP(-1, close_space, "Error getting dataset dimensions");
   }
 
-  desc->data_width = width;
+  if ( H5Tequal(t_id,H5T_NATIVE_CHAR)>0 || H5Tequal(t_id,H5T_NATIVE_INT)>0 || H5Tequal(t_id,H5T_NATIVE_SHORT)>0 || H5Tequal(t_id,H5T_NATIVE_LONG)>0 || H5Tequal(t_id,H5T_NATIVE_LLONG)>0 ) {
+    // signed
+    desc->data_width = -width;
+  } else {
+    // unsigned
+    desc->data_width =  width;
+  }
 
 close_space:
   H5Sclose(s_id);
@@ -233,7 +239,7 @@ int get_frame_from_chunk(const struct ds_desc_t *desc, const char *ds_name,
 
   if (o_eiger_desc->bs_applied) {
     if (bslz4_decompress(o_eiger_desc->bs_params, c_bytes, c_buffer,
-                         desc->data_width * frame_size[1] * frame_size[2],
+                         abs(desc->data_width) * frame_size[1] * frame_size[2],
                          buffer) < 0) {
       char message[128];
       sprintf(message,
@@ -251,10 +257,11 @@ done:
   return retval;
 }
 
-int get_nxs_frame(const struct ds_desc_t *desc, const int n, void *buffer) {
+int get_nxs_frame(const struct ds_desc_t *desc, const int nin, void *buffer) {
   /* detector data are the two inner most indices */
   /* TODO: handle ndims > 3 and select appropriately */
   int retval = 0;
+  int n = nin - desc->image_number_offset;
   hsize_t frame_idx[3] = {n, 0, 0};
   hsize_t frame_size[3] = {1, desc->dims[1], desc->dims[2]};
   if (n < 0 || n >= desc->dims[0]) {
@@ -271,9 +278,10 @@ done:
   return retval;
 }
 
-int get_dectris_eiger_frame(const struct ds_desc_t *desc, int n, void *buffer) {
+int get_dectris_eiger_frame(const struct ds_desc_t *desc, int nin, void *buffer) {
 
   int retval = 0;
+  int n = nin - desc->image_number_offset;
   int block, frame_count, idx;
   struct eiger_ds_desc_t *eiger_desc = (struct eiger_ds_desc_t *)desc;
   char data_name[16] = {0};
@@ -348,6 +356,10 @@ int get_dectris_eiger_dataset_dims(struct ds_desc_t *desc) {
     data_width = H5Tget_size(t_id);
     if (data_width <= 0) {
       ERROR_JUMP(-1, close_space, "Unable to get type size");
+    }
+    if ( H5Tequal(t_id,H5T_NATIVE_CHAR)>0 || H5Tequal(t_id,H5T_NATIVE_INT)>0 || H5Tequal(t_id,H5T_NATIVE_SHORT)>0 || H5Tequal(t_id,H5T_NATIVE_LONG)>0 || H5Tequal(t_id,H5T_NATIVE_LLONG)>0 ) {
+      // signed
+      data_width = -data_width;
     }
 
     ndims = H5Sget_simple_extent_ndims(s_id);
@@ -561,9 +573,37 @@ int get_dectris_eiger_pixel_mask(const struct ds_desc_t *desc, int *buffer) {
     ERROR_JUMP(-1, done, "Error opening detectorSpecific/pixel_mask");
   }
 
+  // what if this is compressed?
+  hid_t dcpl    = H5Dget_create_plist(ds_id);
+  int n_filters = H5Pget_nfilters(dcpl);
+  H5Z_filter_t    filter_id;
+  if (n_filters>0) {
+    unsigned int    flags;
+    size_t          nelmts = 1;
+    unsigned int    values_out[1] = {99};
+    char            filter_name[80];
+    for ( int i_filt = 0; i_filt < n_filters; i_filt++) {
+      filter_id = H5Pget_filter(dcpl, i_filt, &flags, &nelmts, values_out, sizeof(filter_name), filter_name, NULL);
+      if (filter_id>=0) {
+        fprintf(stderr," filter #%d name =\"%s\"\n",(i_filt+1),filter_name);
+      }
+    }
+  }
+
+  int i0 = H5Zfilter_avail(BS_H5_FILTER_ID);
+
   err = H5Dread(ds_id, H5T_NATIVE_INT, H5S_ALL, H5S_ALL, H5P_DEFAULT, buffer);
   if (err < 0) {
-    ERROR_JUMP(-1, close_dataset, "Error reading detectorSpecific/pixel_mask");
+    if (n_filters>0) {
+      ERROR_JUMP(-1, close_dataset, "Error reading detectorSpecific/pixel_mask with filter(s)");
+    }
+    else {
+      ERROR_JUMP(-1, close_dataset, "Error reading detectorSpecific/pixel_mask");
+    }
+  }
+
+  if (!i0 && H5Zfilter_avail(BS_H5_FILTER_ID)) {
+    fprintf(stderr," bitshuffle filter is available now since H5Dread (of pixel-mask) triggered loading of the filter.\n");
   }
 
 close_dataset:
@@ -594,9 +634,9 @@ herr_t det_visit_callback(hid_t root_id, const char *name,
 
   /* check for an "NX_class" attribute */
   {
-    int str_size = 0;
-    void *buffer = NULL;
-    hid_t a_id, t_id, mt_id;
+    char* buffer = (char*)malloc(1);
+    buffer[0] = '\0';
+    hid_t a_id, t_id;
     if (H5Aexists(g_id, "NX_class") <= 0) {
       /* not an error - just close group and allow continuation */
       retval = 0;
@@ -616,70 +656,48 @@ herr_t det_visit_callback(hid_t root_id, const char *name,
     if (t_id < 0) {
       ERROR_JUMP(-1, close_attr, "Error getting datatype");
     }
-    if (H5Tis_variable_str(t_id) > 0) {
-      str_size = -1;
-      buffer = malloc(sizeof(char *));
-    } else {
-      str_size = H5Tget_size(t_id);
-      buffer = malloc(str_size + 1);
+
+    H5A_info_t a_info;
+    herr_t err = H5Aget_info(a_id, &a_info);
+    if (err<0) {
+      ERROR_JUMP(-1, close_type,
+                 "Unable to get attribute info for NX_class");
     }
+    else {
+      if (a_info.cset != H5T_CSET_ASCII && a_info.cset != H5T_CSET_UTF8) {
+        fprintf(stderr," %s : NX_class attribute info cset = unknown with size %d\n",name,(int) a_info.data_size);
+      }
+    }
+
+    buffer = (char *)malloc(sizeof(char)*(H5Tget_size(t_id)+1));
     if (!buffer) {
       ERROR_JUMP(-1, close_type, "Error allocating string buffer");
     }
 
-    mt_id = H5Tcopy(H5T_C_S1);
-    if (mt_id < 0) {
-      ERROR_JUMP(-1, free_buffer, "Error creating HDF5 String datatype");
-    }
-    // set the target string type to be one longer than the recorded string
-    // in keeping with the malloc'd buffer - if this is already a null
-    // terminated string then we will just have two nulls, if it is not
-    // then we won't clobber the last char in the buffer with a null in the
-    // H5Aread call
-    if (H5Tset_size(mt_id, str_size == -1 ? H5T_VARIABLE : str_size + 1) < 0) {
-      char message[64];
-      sprintf(message, "Error setting string datatype to size %d", str_size);
-      ERROR_JUMP(-1, close_mtype, message);
-    }
-
-    if (H5Aread(a_id, mt_id, buffer) < 0) {
+    if (H5Aread(a_id, t_id, buffer) < 0) {
       char message[256];
       sprintf(
           message,
           "H5OVisit callback: Error reading NX_class attribute on group %.128s",
           name);
-      ERROR_JUMP(-1, close_mtype, message);
+      ERROR_JUMP(-1, free_buffer, message);
     }
 
-    /* at least one file has been seen where the NX_class attribute was not null
-     * terminated and extraneous bytes where being read by strcmp -  set the end
-     * byte to null
-     */
+    /* ensure the buffer is null terminated */
+    buffer[H5Tget_size(t_id)] = '\0';
 
-    if (str_size > 0)
-      ((char *)buffer)[str_size] = '\0';
     /* test for NXdata or NXdetector */
     {
-      char *nxclass = str_size > 0 ? (char *)buffer : *((char **)buffer);
-      if (strcmp("NXdata", nxclass) == 0) {
+      if      (strcmp("NXdata", buffer) == 0) {
         hid_t out_id = H5Gopen(root_id, name, H5P_DEFAULT);
         output_data->nxdata = out_id;
-      } else if (strcmp("NXdetector", nxclass) == 0) {
+      }
+      else if (strcmp("NXdetector", buffer) == 0) {
         hid_t out_id = H5Gopen(root_id, name, H5P_DEFAULT);
         output_data->nxdetector = out_id;
       }
     }
 
-    if (str_size == -1) {
-      hsize_t dims[1] = {1};
-      hid_t s_id = H5Screate_simple(1, dims, NULL);
-      H5Sselect_all(s_id);
-      H5Dvlen_reclaim(mt_id, s_id, H5P_DEFAULT, buffer);
-      H5Sclose(s_id);
-    }
-
-  close_mtype:
-    H5Tclose(mt_id);
   free_buffer:
     free(buffer);
   close_type:
