@@ -67,8 +67,106 @@ double scale_from_units(const char *unit_string) {
   }
 }
 
+static int get_vds_source_type(hid_t vds_id, hid_t *source_type) {
+  hid_t dcpl_id = 0;
+  hid_t source_file_id = 0;
+  hid_t source_ds_id = 0;
+  size_t mapping_count = 0;
+  ssize_t filename_size;
+  ssize_t dsetname_size;
+  ssize_t vds_filename_size;
+  char *filename = NULL;
+  char *dsetname = NULL;
+  char *vds_filename = NULL;
+  char *resolved_filename = NULL;
+  int retval = 0;
+
+  dcpl_id = H5Dget_create_plist(vds_id);
+  if (dcpl_id < 0) {
+    ERROR_JUMP(-1, done, "Error getting VDS creation property list");
+  }
+  if (H5Pget_virtual_count(dcpl_id, &mapping_count) < 0) {
+    ERROR_JUMP(-1, done, "Error getting VDS mapping count");
+  }
+  if (mapping_count == 0) {
+    goto done;
+  }
+
+  filename_size = H5Pget_virtual_filename(dcpl_id, 0, NULL, 0);
+  dsetname_size = H5Pget_virtual_dsetname(dcpl_id, 0, NULL, 0);
+  if (filename_size < 0 || dsetname_size < 0) {
+    ERROR_JUMP(-1, done, "Error getting VDS source name sizes");
+  }
+  filename = malloc((size_t)filename_size + 1);
+  dsetname = malloc((size_t)dsetname_size + 1);
+  if (!filename || !dsetname) {
+    ERROR_JUMP(-1, done, "Error allocating VDS source names");
+  }
+  if (H5Pget_virtual_filename(dcpl_id, 0, filename,
+                              (size_t)filename_size + 1) < 0 ||
+      H5Pget_virtual_dsetname(dcpl_id, 0, dsetname,
+                              (size_t)dsetname_size + 1) < 0) {
+    ERROR_JUMP(-1, done, "Error getting VDS source names");
+  }
+
+  if (strcmp(filename, ".") == 0) {
+    source_file_id = H5Iget_file_id(vds_id);
+  } else if (filename[0] == '/') {
+    source_file_id = H5Fopen(filename, H5F_ACC_RDONLY, H5P_DEFAULT);
+  } else {
+    char *last_slash;
+    size_t directory_size;
+
+    vds_filename_size = H5Fget_name(vds_id, NULL, 0);
+    if (vds_filename_size < 0) {
+      ERROR_JUMP(-1, done, "Error getting VDS filename");
+    }
+    vds_filename = malloc((size_t)vds_filename_size + 1);
+    if (!vds_filename ||
+        H5Fget_name(vds_id, vds_filename, (size_t)vds_filename_size + 1) < 0) {
+      ERROR_JUMP(-1, done, "Error reading VDS filename");
+    }
+
+    last_slash = strrchr(vds_filename, '/');
+    directory_size = last_slash ? (size_t)(last_slash - vds_filename + 1) : 0;
+    resolved_filename = malloc(directory_size + strlen(filename) + 1);
+    if (!resolved_filename) {
+      ERROR_JUMP(-1, done, "Error allocating resolved VDS filename");
+    }
+    if (directory_size > 0)
+      memcpy(resolved_filename, vds_filename, directory_size);
+    strcpy(resolved_filename + directory_size, filename);
+    source_file_id = H5Fopen(resolved_filename, H5F_ACC_RDONLY, H5P_DEFAULT);
+  }
+  if (source_file_id < 0) {
+    ERROR_JUMP(-1, done, "Error opening VDS source file");
+  }
+  source_ds_id = H5Dopen2(source_file_id, dsetname, H5P_DEFAULT);
+  if (source_ds_id < 0) {
+    ERROR_JUMP(-1, done, "Error opening VDS source dataset");
+  }
+  *source_type = H5Dget_type(source_ds_id);
+  if (*source_type < 0) {
+    ERROR_JUMP(-1, done, "Error getting VDS source datatype");
+  }
+  retval = 1;
+
+done:
+  if (source_ds_id > 0)
+    H5Dclose(source_ds_id);
+  if (source_file_id > 0)
+    H5Fclose(source_file_id);
+  if (dcpl_id > 0)
+    H5Pclose(dcpl_id);
+  free(filename);
+  free(dsetname);
+  free(vds_filename);
+  free(resolved_filename);
+  return retval;
+}
+
 int get_nxs_dataset_dims(struct ds_desc_t *desc) {
-  hid_t g_id, ds_id, source_ds_id, s_id, t_id, source_t_id;
+  hid_t g_id, ds_id, s_id, t_id, source_t_id = 0;
   int retval = 0;
   int ndims = 0;
   int width = 0;
@@ -85,16 +183,10 @@ int get_nxs_dataset_dims(struct ds_desc_t *desc) {
     ERROR_JUMP(-1, close_dataset, "Error getting datatype");
   }
 
-  if (H5Lexists(g_id, "data_000001", H5P_DEFAULT) > 0) {
-    source_ds_id = H5Dopen2(g_id, "data_000001", H5P_DEFAULT);
-    if (source_ds_id <= 0) {
-      ERROR_JUMP(-1, close_type, "Error opening source dataset");
-    }
-    source_t_id = H5Dget_type(source_ds_id);
-    H5Dclose(source_ds_id);
-    if (source_t_id <= 0) {
-      ERROR_JUMP(-1, close_type, "Error getting source datatype");
-    }
+  if (get_vds_source_type(ds_id, &source_t_id) < 0) {
+    ERROR_JUMP(-1, close_type, "Error getting VDS source datatype");
+  }
+  if (source_t_id > 0) {
     H5Tclose(t_id);
     t_id = source_t_id;
   }
