@@ -26,6 +26,8 @@ void clear_det_visit_objects(struct det_visit_objects_t *objects) {
 }
 
 void free_ds_desc(struct ds_desc_t *desc) {
+  if (desc->data_type)
+    H5Tclose(desc->data_type);
   H5Gclose(desc->det_g_id);
   H5Gclose(desc->data_g_id);
   free(desc);
@@ -65,8 +67,107 @@ double scale_from_units(const char *unit_string) {
   }
 }
 
+static int get_vds_source_type(hid_t vds_id, hid_t *source_type) {
+  /* Helper function to get data type from vds mapped source data */
+  hid_t dcpl_id = 0;
+  hid_t source_file_id = 0;
+  hid_t source_ds_id = 0;
+  size_t mapping_count = 0;
+  ssize_t filename_size;
+  ssize_t dsetname_size;
+  ssize_t vds_filename_size;
+  char *filename = NULL;
+  char *dsetname = NULL;
+  char *vds_filename = NULL;
+  char *resolved_filename = NULL;
+  int retval = 0;
+
+  dcpl_id = H5Dget_create_plist(vds_id);
+  if (dcpl_id < 0) {
+    ERROR_JUMP(-1, done, "Error getting VDS creation property list");
+  }
+  if (H5Pget_virtual_count(dcpl_id, &mapping_count) < 0) {
+    ERROR_JUMP(-1, done, "Error getting VDS mapping count");
+  }
+  if (mapping_count == 0) {
+    goto done;
+  }
+
+  filename_size = H5Pget_virtual_filename(dcpl_id, 0, NULL, 0);
+  dsetname_size = H5Pget_virtual_dsetname(dcpl_id, 0, NULL, 0);
+  if (filename_size < 0 || dsetname_size < 0) {
+    ERROR_JUMP(-1, done, "Error getting VDS source name sizes");
+  }
+  filename = malloc((size_t)filename_size + 1);
+  dsetname = malloc((size_t)dsetname_size + 1);
+  if (!filename || !dsetname) {
+    ERROR_JUMP(-1, done, "Error allocating VDS source names");
+  }
+  if (H5Pget_virtual_filename(dcpl_id, 0, filename,
+                              (size_t)filename_size + 1) < 0 ||
+      H5Pget_virtual_dsetname(dcpl_id, 0, dsetname,
+                              (size_t)dsetname_size + 1) < 0) {
+    ERROR_JUMP(-1, done, "Error getting VDS source names");
+  }
+
+  if (strcmp(filename, ".") == 0) {
+    source_file_id = H5Iget_file_id(vds_id);
+  } else if (filename[0] == '/') {
+    source_file_id = H5Fopen(filename, H5F_ACC_RDONLY, H5P_DEFAULT);
+  } else {
+    char *last_slash;
+    size_t directory_size;
+
+    vds_filename_size = H5Fget_name(vds_id, NULL, 0);
+    if (vds_filename_size < 0) {
+      ERROR_JUMP(-1, done, "Error getting VDS filename");
+    }
+    vds_filename = malloc((size_t)vds_filename_size + 1);
+    if (!vds_filename ||
+        H5Fget_name(vds_id, vds_filename, (size_t)vds_filename_size + 1) < 0) {
+      ERROR_JUMP(-1, done, "Error reading VDS filename");
+    }
+
+    last_slash = strrchr(vds_filename, '/');
+    directory_size = last_slash ? (size_t)(last_slash - vds_filename + 1) : 0;
+    resolved_filename = malloc(directory_size + strlen(filename) + 1);
+    if (!resolved_filename) {
+      ERROR_JUMP(-1, done, "Error allocating resolved VDS filename");
+    }
+    if (directory_size > 0)
+      memcpy(resolved_filename, vds_filename, directory_size);
+    strcpy(resolved_filename + directory_size, filename);
+    source_file_id = H5Fopen(resolved_filename, H5F_ACC_RDONLY, H5P_DEFAULT);
+  }
+  if (source_file_id < 0) {
+    ERROR_JUMP(-1, done, "Error opening VDS source file");
+  }
+  source_ds_id = H5Dopen2(source_file_id, dsetname, H5P_DEFAULT);
+  if (source_ds_id < 0) {
+    ERROR_JUMP(-1, done, "Error opening VDS source dataset");
+  }
+  *source_type = H5Dget_type(source_ds_id);
+  if (*source_type < 0) {
+    ERROR_JUMP(-1, done, "Error getting VDS source datatype");
+  }
+  retval = 1;
+
+done:
+  if (source_ds_id > 0)
+    H5Dclose(source_ds_id);
+  if (source_file_id > 0)
+    H5Fclose(source_file_id);
+  if (dcpl_id > 0)
+    H5Pclose(dcpl_id);
+  free(filename);
+  free(dsetname);
+  free(vds_filename);
+  free(resolved_filename);
+  return retval;
+}
+
 int get_nxs_dataset_dims(struct ds_desc_t *desc) {
-  hid_t g_id, ds_id, s_id, t_id;
+  hid_t g_id, ds_id, s_id, t_id, source_t_id = 0;
   int retval = 0;
   int ndims = 0;
   int width = 0;
@@ -82,6 +183,15 @@ int get_nxs_dataset_dims(struct ds_desc_t *desc) {
   if (t_id <= 0) {
     ERROR_JUMP(-1, close_dataset, "Error getting datatype");
   }
+  /* WORKAROUND: Get the data type from the mapped data and use this instead
+   of VDS data type, because GDA writes wrong data type to VDS meta data */
+  if (get_vds_source_type(ds_id, &source_t_id) < 0) {
+    ERROR_JUMP(-1, close_type, "Error getting VDS source datatype");
+  }
+  if (source_t_id > 0) {
+    H5Tclose(t_id);
+    t_id = source_t_id;
+  }
 
   width = H5Tget_size(t_id);
   if (width <= 0) {
@@ -90,7 +200,7 @@ int get_nxs_dataset_dims(struct ds_desc_t *desc) {
 
   s_id = H5Dget_space(ds_id);
   if (s_id <= 0) {
-    ERROR_JUMP(-1, close_dataset, "Error getting dataspace");
+    ERROR_JUMP(-1, close_type, "Error getting dataspace");
   }
 
   ndims = H5Sget_simple_extent_ndims(s_id);
@@ -105,6 +215,10 @@ int get_nxs_dataset_dims(struct ds_desc_t *desc) {
   }
 
   desc->data_width = width;
+  desc->data_type = H5Tcopy(t_id);
+  if (desc->data_type < 0) {
+    ERROR_JUMP(-1, close_space, "Error copying datatype");
+  }
 
 close_space:
   H5Sclose(s_id);
@@ -136,9 +250,9 @@ int get_frame_simple(const struct ds_desc_t *desc, const char *name,
   if (s_id <= 0) {
     ERROR_JUMP(-1, close_dataset, "Error getting dataspace");
   }
-  t_id = H5Dget_type(ds_id);
+  t_id = desc->data_type ? desc->data_type : H5Dget_type(ds_id);
   if (t_id <= 0) {
-    ERROR_JUMP(-1, close_type, "Error retrieving datatype");
+    ERROR_JUMP(-1, close_space, "Error retrieving datatype");
   }
   err = H5Sselect_hyperslab(s_id, H5S_SELECT_SET, frame_idx, NULL, frame_size,
                             NULL);
@@ -160,7 +274,8 @@ close_mspace:
 close_space:
   H5Sclose(s_id);
 close_type:
-  H5Tclose(t_id);
+  if (t_id != desc->data_type)
+    H5Tclose(t_id);
 close_dataset:
   H5Dclose(ds_id);
 done:
@@ -848,14 +963,14 @@ int create_dataset_descriptor(struct ds_desc_t **desc,
     ds_id = visit_result->nxdetector;
     ds_prop_func = &get_nxs_dataset_dims;
     frame_func = &get_nxs_frame;
-  } else if (H5Lexists(visit_result->nxdetector, "data_000001", H5P_DEFAULT) > 0) {
-    ds_id = visit_result->nxdetector;
-    ds_prop_func = &get_dectris_eiger_dataset_dims;
-    frame_func = &get_dectris_eiger_frame;
   } else if (H5Lexists(visit_result->nxdata, "data", H5P_DEFAULT) > 0) {
     ds_id = visit_result->nxdata;
     ds_prop_func = &get_nxs_dataset_dims;
     frame_func = &get_nxs_frame;
+  } else if (H5Lexists(visit_result->nxdetector, "data_000001", H5P_DEFAULT) > 0) {
+    ds_id = visit_result->nxdetector;
+    ds_prop_func = &get_dectris_eiger_dataset_dims;
+    frame_func = &get_dectris_eiger_frame;
   } else if (H5Lexists(visit_result->nxdata, "data_000001", H5P_DEFAULT) > 0) {
     ds_id = visit_result->nxdata;
     ds_prop_func = &get_dectris_eiger_dataset_dims;
@@ -870,14 +985,13 @@ int create_dataset_descriptor(struct ds_desc_t **desc,
     struct eiger_ds_desc_t *eiger_desc;
     struct opt_eiger_ds_desc_t *o_eiger_desc;
 
-    eiger_desc = malloc(sizeof(*eiger_desc));
+    eiger_desc = calloc(1, sizeof(*eiger_desc));
     if (!eiger_desc) {
       ERROR_JUMP(-1, done, "Memory error creating data description for Eiger");
     }
-    memset(eiger_desc, 0, sizeof(*eiger_desc));
     eiger_desc->frame_func = &get_frame_simple;
 
-    o_eiger_desc = malloc(sizeof(*o_eiger_desc));
+    o_eiger_desc = calloc(1, sizeof(*o_eiger_desc));
     if (!o_eiger_desc) {
       free(eiger_desc);
       ERROR_JUMP(-1, done,
@@ -903,7 +1017,7 @@ int create_dataset_descriptor(struct ds_desc_t **desc,
     }
 
   } else {
-    *desc = malloc(sizeof(struct nxs_ds_desc_t));
+    *desc = calloc(1, sizeof(struct nxs_ds_desc_t));
     free_func = &free_nxs_desc;
   }
 
