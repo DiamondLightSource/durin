@@ -86,6 +86,11 @@ static int get_vds_source_type(hid_t vds_id, hid_t *source_type) {
   if (dcpl_id < 0) {
     ERROR_JUMP(-1, done, "Error getting VDS creation property list");
   }
+  /* not a VDS - keep the dataset's own datatype */
+  if (H5Pget_layout(dcpl_id) != H5D_VIRTUAL) {
+    goto done;
+  }
+
   if (H5Pget_virtual_count(dcpl_id, &mapping_count) < 0) {
     ERROR_JUMP(-1, done, "Error getting VDS mapping count");
   }
@@ -184,7 +189,9 @@ int get_nxs_dataset_dims(struct ds_desc_t *desc) {
     ERROR_JUMP(-1, close_dataset, "Error getting datatype");
   }
   /* WORKAROUND: Get the data type from the mapped data and use this instead
-   of VDS data type, because GDA writes wrong data type to VDS meta data */
+   of VDS data type, because GDA writes wrong data type to VDS meta data. 
+   If dataset is not a virtual dataset, function returns 0 and dataset's
+   own data type will be used*/
   if (get_vds_source_type(ds_id, &source_t_id) < 0) {
     ERROR_JUMP(-1, close_type, "Error getting VDS source datatype");
   }
@@ -952,12 +959,13 @@ int create_dataset_descriptor(struct ds_desc_t **desc,
   }
 
   /* determine where the data is stored and what strategy to use */
-  /* we select the "virtual-dataset" strategy if both are valid as the 
-   * virtual dataset is more likely to be the intended dataset, now that 
+  /* we prioritise the nxs strategy if both are valid as the 
+   * nxs dataset is more likely to be the intended dataset, now that 
    * multiple virtual datasets can be taken in a single collection (e.g.
-   * for multi-sample pins). In these cases, all of the images taken in the
-   * full collection are linked as data_######.h5 files with the virtual
-   * dataset mapping to the relevant images for the current sample.
+   * for multi-sample pins). In the multi-sample pin example, all of the
+   * images taken in the full collection are linked as data_######.h5 
+   * files with the virtual dataset mapping to the relevant images for
+   * the current sample. 
    */
   if (H5Lexists(visit_result->nxdetector, "data", H5P_DEFAULT) > 0) {
     ds_id = visit_result->nxdetector;
