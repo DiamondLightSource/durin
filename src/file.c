@@ -200,7 +200,7 @@ int get_nxs_dataset_dims(struct ds_desc_t *desc) {
 
   s_id = H5Dget_space(ds_id);
   if (s_id <= 0) {
-    ERROR_JUMP(-1, close_dataset, "Error getting dataspace");
+    ERROR_JUMP(-1, close_type, "Error getting dataspace");
   }
 
   ndims = H5Sget_simple_extent_ndims(s_id);
@@ -985,14 +985,13 @@ int create_dataset_descriptor(struct ds_desc_t **desc,
     struct eiger_ds_desc_t *eiger_desc;
     struct opt_eiger_ds_desc_t *o_eiger_desc;
 
-    eiger_desc = malloc(sizeof(*eiger_desc));
+    eiger_desc = calloc(1, sizeof(*eiger_desc));
     if (!eiger_desc) {
       ERROR_JUMP(-1, done, "Memory error creating data description for Eiger");
     }
-    memset(eiger_desc, 0, sizeof(*eiger_desc));
     eiger_desc->frame_func = &get_frame_simple;
 
-    o_eiger_desc = malloc(sizeof(*o_eiger_desc));
+    o_eiger_desc = calloc(1, sizeof(*o_eiger_desc));
     if (!o_eiger_desc) {
       free(eiger_desc);
       ERROR_JUMP(-1, done,
