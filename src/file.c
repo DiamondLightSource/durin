@@ -68,6 +68,7 @@ double scale_from_units(const char *unit_string) {
 }
 
 static int get_vds_source_type(hid_t vds_id, hid_t *source_type) {
+  /* Helper function to get data type from vds mapped source data */
   hid_t dcpl_id = 0;
   hid_t source_file_id = 0;
   hid_t source_ds_id = 0;
@@ -182,7 +183,8 @@ int get_nxs_dataset_dims(struct ds_desc_t *desc) {
   if (t_id <= 0) {
     ERROR_JUMP(-1, close_dataset, "Error getting datatype");
   }
-
+  /* WORKAROUND: Get the data type from the mapped data and use this instead
+   of VDS data type, because GDA writes wrong data type to VDS meta data */
   if (get_vds_source_type(ds_id, &source_t_id) < 0) {
     ERROR_JUMP(-1, close_type, "Error getting VDS source datatype");
   }
