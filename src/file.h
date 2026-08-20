@@ -13,6 +13,7 @@
 struct ds_desc_t {
   hid_t det_g_id;
   hid_t data_g_id;
+  hid_t data_type;
   hsize_t dims[3];
   int data_width;
   int (*get_pixel_properties)(const struct ds_desc_t *, double *, double *);

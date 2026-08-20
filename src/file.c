@@ -26,6 +26,8 @@ void clear_det_visit_objects(struct det_visit_objects_t *objects) {
 }
 
 void free_ds_desc(struct ds_desc_t *desc) {
+  if (desc->data_type)
+    H5Tclose(desc->data_type);
   H5Gclose(desc->det_g_id);
   H5Gclose(desc->data_g_id);
   free(desc);
@@ -66,7 +68,7 @@ double scale_from_units(const char *unit_string) {
 }
 
 int get_nxs_dataset_dims(struct ds_desc_t *desc) {
-  hid_t g_id, ds_id, s_id, t_id;
+  hid_t g_id, ds_id, source_ds_id, s_id, t_id, source_t_id;
   int retval = 0;
   int ndims = 0;
   int width = 0;
@@ -81,6 +83,20 @@ int get_nxs_dataset_dims(struct ds_desc_t *desc) {
   t_id = H5Dget_type(ds_id);
   if (t_id <= 0) {
     ERROR_JUMP(-1, close_dataset, "Error getting datatype");
+  }
+
+  if (H5Lexists(g_id, "data_000001", H5P_DEFAULT) > 0) {
+    source_ds_id = H5Dopen2(g_id, "data_000001", H5P_DEFAULT);
+    if (source_ds_id <= 0) {
+      ERROR_JUMP(-1, close_type, "Error opening source dataset");
+    }
+    source_t_id = H5Dget_type(source_ds_id);
+    H5Dclose(source_ds_id);
+    if (source_t_id <= 0) {
+      ERROR_JUMP(-1, close_type, "Error getting source datatype");
+    }
+    H5Tclose(t_id);
+    t_id = source_t_id;
   }
 
   width = H5Tget_size(t_id);
@@ -105,6 +121,10 @@ int get_nxs_dataset_dims(struct ds_desc_t *desc) {
   }
 
   desc->data_width = width;
+  desc->data_type = H5Tcopy(t_id);
+  if (desc->data_type < 0) {
+    ERROR_JUMP(-1, close_space, "Error copying datatype");
+  }
 
 close_space:
   H5Sclose(s_id);
@@ -136,9 +156,9 @@ int get_frame_simple(const struct ds_desc_t *desc, const char *name,
   if (s_id <= 0) {
     ERROR_JUMP(-1, close_dataset, "Error getting dataspace");
   }
-  t_id = H5Dget_type(ds_id);
+  t_id = desc->data_type ? desc->data_type : H5Dget_type(ds_id);
   if (t_id <= 0) {
-    ERROR_JUMP(-1, close_type, "Error retrieving datatype");
+    ERROR_JUMP(-1, close_space, "Error retrieving datatype");
   }
   err = H5Sselect_hyperslab(s_id, H5S_SELECT_SET, frame_idx, NULL, frame_size,
                             NULL);
@@ -160,7 +180,8 @@ close_mspace:
 close_space:
   H5Sclose(s_id);
 close_type:
-  H5Tclose(t_id);
+  if (t_id != desc->data_type)
+    H5Tclose(t_id);
 close_dataset:
   H5Dclose(ds_id);
 done:
@@ -848,14 +869,14 @@ int create_dataset_descriptor(struct ds_desc_t **desc,
     ds_id = visit_result->nxdetector;
     ds_prop_func = &get_nxs_dataset_dims;
     frame_func = &get_nxs_frame;
-  } else if (H5Lexists(visit_result->nxdetector, "data_000001", H5P_DEFAULT) > 0) {
-    ds_id = visit_result->nxdetector;
-    ds_prop_func = &get_dectris_eiger_dataset_dims;
-    frame_func = &get_dectris_eiger_frame;
   } else if (H5Lexists(visit_result->nxdata, "data", H5P_DEFAULT) > 0) {
     ds_id = visit_result->nxdata;
     ds_prop_func = &get_nxs_dataset_dims;
     frame_func = &get_nxs_frame;
+  } else if (H5Lexists(visit_result->nxdetector, "data_000001", H5P_DEFAULT) > 0) {
+    ds_id = visit_result->nxdetector;
+    ds_prop_func = &get_dectris_eiger_dataset_dims;
+    frame_func = &get_dectris_eiger_frame;
   } else if (H5Lexists(visit_result->nxdata, "data_000001", H5P_DEFAULT) > 0) {
     ds_id = visit_result->nxdata;
     ds_prop_func = &get_dectris_eiger_dataset_dims;
@@ -903,7 +924,7 @@ int create_dataset_descriptor(struct ds_desc_t **desc,
     }
 
   } else {
-    *desc = malloc(sizeof(struct nxs_ds_desc_t));
+    *desc = calloc(1, sizeof(struct nxs_ds_desc_t));
     free_func = &free_nxs_desc;
   }
 
